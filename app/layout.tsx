@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Inter, JetBrains_Mono } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
+import { TerminalProvider } from "@/components/terminal-context";
 import "./globals.css";
 
 // Headings — per design spec ("Geist for headings and Inter for standard UI elements").
@@ -36,7 +37,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`dark ${geist.variable} ${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <AppShell>{children}</AppShell>
+        <TerminalProvider>
+          <AppShell>{children}</AppShell>
+        </TerminalProvider>
       </body>
     </html>
   );

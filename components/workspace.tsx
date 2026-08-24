@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   ExternalLink,
   GitCommitHorizontal,
+  History,
   Lightbulb,
   RefreshCw,
   Sparkles,
@@ -18,7 +19,7 @@ import { MonoText, shortSha } from "@/components/mono-text";
 import { PulseIndicator } from "@/components/pulse-indicator";
 import { BranchSelect } from "@/components/branch-select";
 import { ActionItemCard } from "@/components/action-item-card";
-import { TerminalPanel } from "@/components/terminal-panel";
+import { useTerminal } from "@/components/terminal-context";
 import { Skeleton } from "@/components/ui/skeleton";
 import { timeAgo } from "@/lib/format";
 import { BarSeries, type BarDatum } from "@/components/charts/bar-series";
@@ -30,6 +31,15 @@ interface SyncErrorInfo {
   message: string;
   resetAt?: number;
 }
+
+type TabKey = "git" | "insights" | "brainstorm" | "history";
+
+const TABS: { key: TabKey; title: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { key: "git", title: "Git Activity", icon: GitCommitHorizontal },
+  { key: "insights", title: "AI Core Insights", icon: Sparkles },
+  { key: "brainstorm", title: "Idea & Brainstorm Lab", icon: Lightbulb },
+  { key: "history", title: "History", icon: History },
+];
 
 export function Workspace({
   owner,
@@ -56,8 +66,12 @@ export function Workspace({
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [pushErrors, setPushErrors] = useState<Record<string, string>>({});
 
-  // null = terminal panel closed; a string is the prompt to pre-fill.
-  const [terminalPrompt, setTerminalPrompt] = useState<string | null>(null);
+  const { openTerminal } = useTerminal();
+  function handleOpenTerminal(prompt: string) {
+    if (project) openTerminal(project, prompt);
+  }
+
+  const [activeTab, setActiveTab] = useState<TabKey>("git");
 
   async function handleSync() {
     setSyncing(true);
@@ -218,11 +232,31 @@ export function Workspace({
         </div>
       )}
 
-      {/* 3-panel workspace */}
-      <div className="grid flex-1 grid-cols-1 divide-y divide-outline-variant lg:grid-cols-3 lg:divide-x lg:divide-y-0">
-        {/* Column 1 — Git Activity */}
-        <section className="flex flex-col gap-3 p-4 sm:p-6">
-          <ColumnHeader icon={GitCommitHorizontal} title="Git Activity" />
+      {/* Tabbed workspace */}
+      <div className="flex items-center gap-1 border-b border-outline-variant bg-surface-container-low px-4 sm:px-6">
+        {TABS.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={
+                isActive
+                  ? "flex items-center gap-1.5 border-b-2 border-primary px-3 py-2.5 text-sm font-medium text-on-surface"
+                  : "flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-sm text-on-surface-variant hover:text-on-surface"
+              }
+            >
+              <Icon className="size-4" />
+              {tab.title}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {/* Git Activity */}
+        <section className={activeTab === "git" ? "flex flex-col gap-3 p-4 sm:p-6" : "hidden"}>
           {commits.length > 0 && (
             <BarSeries data={commitActivity} title="Commits per day (last 14 days)" height={64} />
           )}
@@ -252,9 +286,8 @@ export function Workspace({
           )}
         </section>
 
-        {/* Column 2 — AI Core Insights */}
-        <section className="flex flex-col gap-4 p-4 sm:p-6">
-          <ColumnHeader icon={Sparkles} title="AI Core Insights" />
+        {/* AI Core Insights */}
+        <section className={activeTab === "insights" ? "flex flex-col gap-4 p-4 sm:p-6" : "hidden"}>
           {syncing ? (
             <InsightsSkeleton />
           ) : !hasAnalysis ? (
@@ -297,7 +330,7 @@ export function Workspace({
                         pushing={pushingId === item.id}
                         error={pushErrors[item.id]}
                         onPush={() => handlePush(item)}
-                        onOpenTerminal={setTerminalPrompt}
+                        onOpenTerminal={handleOpenTerminal}
                       />
                     ))}
                   </div>
@@ -307,9 +340,8 @@ export function Workspace({
           )}
         </section>
 
-        {/* Column 3 — Idea & Brainstorm Lab */}
-        <section className="flex flex-col gap-3 p-4 sm:p-6">
-          <ColumnHeader icon={Lightbulb} title="Idea & Brainstorm Lab" />
+        {/* Idea & Brainstorm Lab */}
+        <section className={activeTab === "brainstorm" ? "flex flex-col gap-3 p-4 sm:p-6" : "hidden"}>
           {syncing ? (
             <InsightsSkeleton compact />
           ) : !hasAnalysis ? (
@@ -325,24 +357,24 @@ export function Workspace({
                   pushing={pushingId === item.id}
                   error={pushErrors[item.id]}
                   onPush={() => handlePush(item)}
-                  onOpenTerminal={setTerminalPrompt}
+                  onOpenTerminal={handleOpenTerminal}
                 />
               ))}
             </div>
           )}
         </section>
+
+        {/* History */}
+        <div className={activeTab === "history" ? "block" : "hidden"}>
+          {initial.history.length === 0 ? (
+            <div className="p-4 sm:p-6">
+              <EmptyNote text="No sync history yet." />
+            </div>
+          ) : (
+            <HistoryTimeline history={initial.history} />
+          )}
+        </div>
       </div>
-
-      {terminalPrompt !== null && project && (
-        <TerminalPanel
-          project={project}
-          prompt={terminalPrompt}
-          onClose={() => setTerminalPrompt(null)}
-          onProjectUpdate={setProject}
-        />
-      )}
-
-      <HistoryTimeline history={initial.history} />
     </div>
   );
 }
@@ -373,21 +405,6 @@ function commitsByDay(commits: CompareCommit[]): BarDatum[] {
     label: d.label,
     value: counts.get(d.key) ?? 0,
   }));
-}
-
-function ColumnHeader({
-  icon: Icon,
-  title,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 text-on-surface">
-      <Icon className="size-4" />
-      <h2 className="font-heading text-sm font-semibold">{title}</h2>
-    </div>
-  );
 }
 
 function SummaryBlock({ title, lines }: { title: string; lines: string[] }) {
