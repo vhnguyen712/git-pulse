@@ -73,7 +73,9 @@ export function Workspace({
         } else if (res.status === 502) {
           setSyncError({ message: body.message ?? "The AI returned an invalid response." });
         } else {
-          setSyncError({ message: body.error ?? "Sync failed." });
+          setSyncError({
+            message: body.detail ? `${body.error ?? "Sync failed."} ${body.detail}` : body.error ?? "Sync failed.",
+          });
         }
         return;
       }

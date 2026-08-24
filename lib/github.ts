@@ -32,6 +32,14 @@ export async function getOctokit(): Promise<Octokit> {
 
 export class GitHubConfigError extends Error {}
 
+/**
+ * Thrown when `compare` can't relate the two refs — GitHub returns 404 both
+ * when a sha is missing and when there's "no common ancestor" (rewritten or
+ * rebased history orphaning the stored base sha). Callers re-baseline to a
+ * fresh sync rather than surfacing an opaque failure.
+ */
+export class GitHubNoCommonHistoryError extends Error {}
+
 export class GitHubRateLimitError extends Error {
   /** Epoch seconds when the rate limit resets. */
   resetAt: number;
@@ -203,12 +211,17 @@ export async function compare(
 ): Promise<CompareResult> {
   const octokit = await getOctokit();
   return withRateLimitHandling(async () => {
-    const { data } = await octokit.repos.compareCommits({
-      owner,
-      repo,
-      base,
-      head,
-    });
+    let data;
+    try {
+      ({ data } = await octokit.repos.compareCommits({ owner, repo, base, head }));
+    } catch (err) {
+      if (typeof err === "object" && err !== null && (err as { status?: number }).status === 404) {
+        throw new GitHubNoCommonHistoryError(
+          `Cannot compare ${base.slice(0, 7)}...${head.slice(0, 7)} (missing sha or no common ancestor).`,
+        );
+      }
+      throw err;
+    }
     return {
       aheadBy: data.ahead_by,
       commits: data.commits.map((c) => ({
