@@ -1,26 +1,205 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * GitPulse AI design tokens.
+ * Source: provided design system spec ("UI as an IDE" — minimal,
+ * technical-professional, dark-only for MVP).
+ *
+ * The frontmatter `colors` map is the canonical palette (exposed below
+ * verbatim as --surface, --on-surface, etc.). It defines no semantic
+ * status colors, so a small accent scale (blue/orange/purple/green/amber)
+ * is added on top per the prose, used sparingly for badges only.
+ */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter);
+  --font-heading: var(--font-geist);
+  --font-mono: var(--font-jetbrains-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Raw design-system tokens, exposed for direct use (StatusBadge, etc.) */
+  --color-surface: var(--surface);
+  --color-surface-dim: var(--surface-dim);
+  --color-surface-bright: var(--surface-bright);
+  --color-surface-container-lowest: var(--surface-container-lowest);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-outline: var(--outline);
+  --color-outline-variant: var(--outline-variant);
+  --color-tertiary: var(--tertiary);
+  --color-on-tertiary: var(--on-tertiary);
+  --color-tertiary-container: var(--tertiary-container);
+  --color-on-tertiary-container: var(--on-tertiary-container);
+
+  /* Semantic accents (badges only) */
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-blue-bg: var(--accent-blue-bg);
+  --color-accent-orange: var(--accent-orange);
+  --color-accent-orange-bg: var(--accent-orange-bg);
+  --color-accent-purple: var(--accent-purple);
+  --color-accent-purple-bg: var(--accent-purple-bg);
+  --color-accent-green: var(--accent-green);
+  --color-accent-green-bg: var(--accent-green-bg);
+  --color-accent-amber: var(--accent-amber);
+  --color-accent-amber-bg: var(--accent-amber-bg);
+
+  /* Shape: 4px base radius per spec ("blocky" developer aesthetic, no pills for badges) */
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.375rem;
+  --radius-xl: 0.5rem;
+  --radius-2xl: 0.75rem;
+  --radius-full: 9999px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  /* GitPulse AI is dark-only for MVP; :root carries the dark palette directly. */
+  color-scheme: dark;
+
+  /* --- Canonical design tokens (verbatim from spec frontmatter) --- */
+  --surface: #141313;
+  --surface-dim: #141313;
+  --surface-bright: #3a3939;
+  --surface-container-lowest: #0e0e0e;
+  --surface-container-low: #1c1b1b;
+  --surface-container: #201f1f;
+  --surface-container-high: #2a2a2a;
+  --surface-container-highest: #353434;
+  --on-surface: #e5e2e1;
+  --on-surface-variant: #c4c7c8;
+  --inverse-surface: #e5e2e1;
+  --inverse-on-surface: #313030;
+  --outline: #8e9192;
+  --outline-variant: #444748;
+  --surface-tint: #c6c6c7;
+  --primary: #ffffff;
+  --on-primary: #2f3131;
+  --primary-container: #e2e2e2;
+  --on-primary-container: #636565;
+  --inverse-primary: #5d5f5f;
+  --secondary: #c6c6cf;
+  --on-secondary: #2f3037;
+  --secondary-container: #45464e;
+  --on-secondary-container: #b4b4bd;
+  --tertiary: #ffffff;
+  --on-tertiary: #32302d;
+  --tertiary-container: #e7e1dd;
+  --on-tertiary-container: #676460;
+  --error: #ffb4ab;
+  --on-error: #690005;
+  --error-container: #93000a;
+  --on-error-container: #ffdad6;
+  --background: #141313;
+  --on-background: #e5e2e1;
+  --surface-variant: #353434;
+
+  /* --- Semantic status accents (added; not in frontmatter) --- */
+  --accent-blue: #7dabff;
+  --accent-blue-bg: color-mix(in oklch, var(--accent-blue) 16%, var(--surface));
+  --accent-orange: #ff9f5a;
+  --accent-orange-bg: color-mix(in oklch, var(--accent-orange) 16%, var(--surface));
+  --accent-purple: #b98cff;
+  --accent-purple-bg: color-mix(in oklch, var(--accent-purple) 16%, var(--surface));
+  --accent-green: #6fd68a;
+  --accent-green-bg: color-mix(in oklch, var(--accent-green) 16%, var(--surface));
+  --accent-amber: #f2c94c;
+  --accent-amber-bg: color-mix(in oklch, var(--accent-amber) 16%, var(--surface));
+
+  /* --- shadcn/ui component mapping ---
+   * Level 1 cards deliberately share the canvas background (no bg change),
+   * distinguished only by a 1px outline-variant border, per the elevation spec. */
+  --foreground: var(--on-surface);
+  --card: var(--surface);
+  --card-foreground: var(--on-surface);
+  --popover: var(--surface-container-high);
+  --popover-foreground: var(--on-surface);
+  --primary-foreground: var(--on-primary);
+  --secondary: var(--surface-container);
+  --secondary-foreground: var(--on-surface);
+  --muted: var(--surface-container-low);
+  --muted-foreground: var(--on-surface-variant);
+  --accent: var(--surface-container-high);
+  --accent-foreground: var(--on-surface);
+  --destructive: var(--error);
+  --destructive-foreground: var(--on-error-container);
+  --border: var(--outline-variant);
+  --input: var(--outline-variant);
+  --ring: var(--outline);
+
+  --sidebar: var(--surface-container-low);
+  --sidebar-foreground: var(--on-surface);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--on-primary);
+  --sidebar-accent: var(--surface-container);
+  --sidebar-accent-foreground: var(--on-surface);
+  --sidebar-border: var(--outline-variant);
+  --sidebar-ring: var(--outline);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans text-sm;
+  }
+  html {
+    @apply font-sans;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-heading tracking-tight;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* The Pulse — reserved for live/active system processes only. */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
 }
