@@ -18,6 +18,7 @@ import { MonoText, shortSha } from "@/components/mono-text";
 import { PulseIndicator } from "@/components/pulse-indicator";
 import { BranchSelect } from "@/components/branch-select";
 import { ActionItemCard } from "@/components/action-item-card";
+import { TerminalPanel } from "@/components/terminal-panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { timeAgo } from "@/lib/format";
 import { BarSeries, type BarDatum } from "@/components/charts/bar-series";
@@ -54,6 +55,9 @@ export function Workspace({
 
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [pushErrors, setPushErrors] = useState<Record<string, string>>({});
+
+  // null = terminal panel closed; a string is the prompt to pre-fill.
+  const [terminalPrompt, setTerminalPrompt] = useState<string | null>(null);
 
   async function handleSync() {
     setSyncing(true);
@@ -293,6 +297,7 @@ export function Workspace({
                         pushing={pushingId === item.id}
                         error={pushErrors[item.id]}
                         onPush={() => handlePush(item)}
+                        onOpenTerminal={setTerminalPrompt}
                       />
                     ))}
                   </div>
@@ -320,12 +325,22 @@ export function Workspace({
                   pushing={pushingId === item.id}
                   error={pushErrors[item.id]}
                   onPush={() => handlePush(item)}
+                  onOpenTerminal={setTerminalPrompt}
                 />
               ))}
             </div>
           )}
         </section>
       </div>
+
+      {terminalPrompt !== null && project && (
+        <TerminalPanel
+          project={project}
+          prompt={terminalPrompt}
+          onClose={() => setTerminalPrompt(null)}
+          onProjectUpdate={setProject}
+        />
+      )}
 
       <HistoryTimeline history={initial.history} />
     </div>

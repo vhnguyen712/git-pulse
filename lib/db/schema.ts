@@ -22,6 +22,8 @@ export const projects = sqliteTable(
     lastSyncedAt: integer("last_synced_at"),
     /** Last time the project workspace page was opened — drives the "unread" action-item badge. */
     lastViewedAt: integer("last_viewed_at"),
+    /** Absolute path to the repo's local clone — required to open an embedded terminal here. */
+    localPath: text("local_path"),
     createdAt: integer("created_at")
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),
