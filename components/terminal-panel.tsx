@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { Loader2, SquareTerminal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useTerminal } from "@/components/terminal-context";
+import { useTerminal, type TerminalSession as Session } from "@/components/terminal-context";
+import type { Project } from "@/lib/db/schema";
 
 type Status = "no-path" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
 
@@ -15,21 +16,44 @@ type Status = "no-path" | "connecting" | "connected" | "reconnecting" | "closed"
 const TERMINAL_CLOSE_CODES = new Set([1000, 4000, 4001, 4003, 4004, 4005]);
 const MAX_RECONNECT_ATTEMPTS = 6;
 
-function sessionStorageKey(projectId: string) {
-  return `terminal-session:${projectId}`;
+function sessionStorageKey(id: string) {
+  return `terminal-session:${id}`;
 }
 
 /**
- * Embedded terminal footer: runs a real `claude` session (via lib/terminal/server.ts
- * + server.ts's WebSocket upgrade) in the project's local clone, seeded with an
+ * Embedded terminal footer: runs real `claude` sessions (via lib/terminal/server.ts
+ * + server.ts's WebSocket upgrade) in a project's local clone, seeded with an
  * action item's prompt. The browser can't spawn a process itself — this pipes
  * xterm.js to a PTY the server owns.
  *
- * Rendered once at the app-shell level (not per-page) so navigating between
- * pages doesn't tear down the WebSocket connection.
+ * Multiple tasks can be open at once, one tab each; every session stays mounted
+ * (inactive ones just hidden) so switching tabs doesn't tear down its pty or
+ * lose its scrollback. Rendered once at the app-shell level (not per-page) so
+ * navigating between pages doesn't drop the connections either.
  */
 export function TerminalDock() {
-  const { session, height, closeTerminal, updateProject, setHeight } = useTerminal();
+  const { sessions, activeId, height, activateSession, closeSession, updateProject, setHeight } =
+    useTerminal();
+
+  // Per-tab connection status, reported up by each session, so the tab strip
+  // can show a spinner while a session is (re)connecting.
+  const [statuses, setStatuses] = useState<Record<string, Status>>({});
+
+  // Each pane registers a "kill this pty" fn here so closing its tab can tell
+  // the server to actually terminate `claude`, rather than dropping the socket
+  // and leaving the process alive for the whole reconnect grace period.
+  const killFns = useRef<Map<string, () => void>>(new Map());
+  const registerKill = useCallback((id: string, fn: () => void) => {
+    killFns.current.set(id, fn);
+  }, []);
+  const handleClose = useCallback(
+    (id: string) => {
+      killFns.current.get(id)?.();
+      killFns.current.delete(id);
+      closeSession(id);
+    },
+    [closeSession],
+  );
 
   const draggingRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
@@ -50,7 +74,7 @@ export function TerminalDock() {
     };
   }, [setHeight]);
 
-  if (!session) return null;
+  if (sessions.length === 0) return null;
 
   return (
     <div
@@ -64,31 +88,92 @@ export function TerminalDock() {
         className="h-1.5 shrink-0 cursor-row-resize bg-transparent hover:bg-primary/40 active:bg-primary/60"
         title="Drag to resize"
       />
-      <TerminalSession
-        key={session.project.id}
-        onClose={closeTerminal}
-        onProjectUpdate={updateProject}
-      />
+
+      {/* Tab strip */}
+      <div className="flex shrink-0 items-stretch gap-px overflow-x-auto border-b border-outline-variant bg-surface-container-low">
+        {sessions.map((s) => {
+          const isActive = s.id === activeId;
+          const status = statuses[s.id];
+          return (
+            <div
+              key={s.id}
+              className={cn(
+                "group flex min-w-0 max-w-[220px] shrink-0 items-center gap-1.5 border-r border-outline-variant px-3 py-1.5 text-xs",
+                isActive
+                  ? "bg-surface-container-lowest text-on-surface"
+                  : "text-on-surface-variant hover:bg-white/5",
+              )}
+            >
+              <button
+                onClick={() => activateSession(s.id)}
+                title={`${s.project.owner}/${s.project.repoName} — ${s.title}`}
+                className="flex min-w-0 items-center gap-1.5"
+              >
+                {status === "connecting" || status === "reconnecting" ? (
+                  <Loader2 className="size-3 shrink-0 animate-spin" />
+                ) : (
+                  <SquareTerminal className="size-3 shrink-0" />
+                )}
+                <span className="truncate">{s.title}</span>
+              </button>
+              <button
+                onClick={() => handleClose(s.id)}
+                title="Close tab"
+                className="shrink-0 rounded p-0.5 text-on-surface-variant opacity-60 hover:bg-white/10 hover:text-on-surface group-hover:opacity-100"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* One pane per session; inactive panes stay mounted but hidden. */}
+      <div className="relative min-h-0 flex-1">
+        {sessions.map((s) => (
+          <TerminalPane
+            key={s.id}
+            session={s}
+            active={s.id === activeId}
+            onProjectUpdate={updateProject}
+            onStatus={(status) => setStatuses((prev) => ({ ...prev, [s.id]: status }))}
+            registerKill={registerKill}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
-function TerminalSession({
-  onClose,
+function TerminalPane({
+  session,
+  active,
   onProjectUpdate,
+  onStatus,
+  registerKill,
 }: {
-  onClose: () => void;
-  onProjectUpdate: (project: import("@/lib/db/schema").Project) => void;
+  session: Session;
+  active: boolean;
+  onProjectUpdate: (project: Project) => void;
+  onStatus: (status: Status) => void;
+  registerKill: (id: string, fn: () => void) => void;
 }) {
-  const { session } = useTerminal();
-  const project = session!.project;
-  const prompt = session!.prompt;
+  const project = session.project;
+  const prompt = session.prompt;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const termRef = useRef<import("@xterm/xterm").Terminal | null>(null);
+  const fitRef = useRef<import("@xterm/addon-fit").FitAddon | null>(null);
   const [status, setStatus] = useState<Status>(project.localPath ? "connecting" : "no-path");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pathInput, setPathInput] = useState("");
   const [savingPath, setSavingPath] = useState(false);
+
+  // Bubble status changes up so the tab strip can reflect them.
+  useEffect(() => {
+    onStatus(status);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onStatus identity churns every render; we only care about status transitions.
+  }, [status]);
 
   // Separate "should a connection attempt happen" from `status`: the effect
   // below sets `status` as the connection progresses (connecting → connected
@@ -103,6 +188,9 @@ function TerminalSession({
   // it needs to tell the server "actually kill this" rather than leaving
   // the pty alive for the reconnect grace period.
   const killRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    registerKill(session.id, () => killRef.current());
+  }, [registerKill, session.id]);
 
   useEffect(() => {
     if (!shouldConnect || !containerRef.current || !project.localPath) return;
@@ -118,13 +206,13 @@ function TerminalSession({
 
     // Stable across the whole panel session (survives reconnects), so a
     // dropped connection reattaches to the same server-side pty instead of
-    // starting `claude` over. Persisted in sessionStorage so a page refresh
-    // — which remounts this component and re-runs this effect — recovers
-    // the same session and gets its scrollback replayed.
-    const storageKey = sessionStorageKey(project.id);
+    // starting `claude` over. Keyed by this tab's unique id (not the project)
+    // so multiple tabs of the same project don't collide, and persisted in
+    // sessionStorage so a same-mount remount recovers the same pty.
+    const storageKey = sessionStorageKey(session.id);
     let sessionId = sessionStorage.getItem(storageKey);
     if (!sessionId) {
-      sessionId = crypto.randomUUID();
+      sessionId = session.id;
       sessionStorage.setItem(storageKey, sessionId);
     }
 
@@ -205,6 +293,8 @@ function TerminalSession({
       fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.open(containerRef.current);
+      termRef.current = term;
+      fitRef.current = fitAddon;
       fitAddon.fit();
 
       term.onData((data) => ws?.readyState === WebSocket.OPEN && ws.send(data));
@@ -226,9 +316,22 @@ function TerminalSession({
       resizeObserver?.disconnect();
       ws?.close();
       term?.dispose();
+      termRef.current = null;
+      fitRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once when shouldConnect flips true; project/prompt are stable for the panel's lifetime (see the comment on shouldConnect above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once when shouldConnect flips true; session/project/prompt are stable for the tab's lifetime (see the comment on shouldConnect above).
   }, [shouldConnect]);
+
+  // A terminal sized while hidden (display:none) measures 0×0, so refit and
+  // refocus whenever this tab becomes the active one.
+  useEffect(() => {
+    if (!active) return;
+    const raf = requestAnimationFrame(() => {
+      fitRef.current?.fit();
+      termRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [active, status]);
 
   async function handleSavePath() {
     if (!pathInput.trim()) return;
@@ -256,22 +359,7 @@ function TerminalSession({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b border-outline-variant px-3 py-1.5">
-        <div className="flex items-center gap-1.5 text-xs text-on-surface-variant">
-          <SquareTerminal className="size-3.5" />
-          claude — {project.owner}/{project.repoName}
-          {status === "connecting" && <Loader2 className="size-3 animate-spin" />}
-        </div>
-        <button
-          onClick={onClose}
-          className="rounded p-0.5 text-on-surface-variant hover:bg-white/10 hover:text-on-surface"
-          title="Close terminal"
-        >
-          <X className="size-3.5" />
-        </button>
-      </div>
-
+    <div className={cn("absolute inset-0 flex min-h-0 flex-col", !active && "hidden")}>
       {status === "no-path" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
           <p className="text-xs text-on-surface-variant">

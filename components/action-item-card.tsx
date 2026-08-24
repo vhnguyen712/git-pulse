@@ -42,7 +42,7 @@ export function ActionItemCard({
   error?: string;
   onPush: () => void;
   /** Opens the embedded terminal panel with this item's prompt pre-filled. */
-  onOpenTerminal: (prompt: string) => void;
+  onOpenTerminal: (prompt: string, title: string) => void;
 }) {
   const canPush = item.status === "suggested" || item.status === "approved";
   const isSynced = item.status === "synced";
@@ -100,7 +100,7 @@ export function ActionItemCard({
         )}
 
         <button
-          onClick={() => onOpenTerminal(buildPrompt(item))}
+          onClick={() => onOpenTerminal(buildPrompt(item), item.title)}
           title="Open a claude session for this task, embedded right here"
           className="inline-flex items-center gap-1 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:bg-white/5 hover:text-on-surface"
         >
