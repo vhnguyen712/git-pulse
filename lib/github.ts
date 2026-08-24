@@ -142,7 +142,8 @@ export async function getRepo(owner: string, repo: string): Promise<RepoMeta> {
   });
 }
 
-export async function getDefaultBranchHeadSha(
+/** Current HEAD sha of a single branch — the head end of each sync's compare range. */
+export async function getBranchHeadSha(
   owner: string,
   repo: string,
   branch: string,
@@ -151,6 +152,23 @@ export async function getDefaultBranchHeadSha(
   return withRateLimitHandling(async () => {
     const { data } = await octokit.repos.getBranch({ owner, repo, branch });
     return data.commit.sha;
+  });
+}
+
+/**
+ * All branch names for a repo (unordered). Backs the per-repo branch picker
+ * so a user can sync a branch other than the default; the caller decides how
+ * to order them (see GET /api/branches, which surfaces the default first).
+ */
+export async function listBranches(owner: string, repo: string): Promise<string[]> {
+  const octokit = await getOctokit();
+  return withRateLimitHandling(async () => {
+    const branches = await octokit.paginate(octokit.repos.listBranches, {
+      owner,
+      repo,
+      per_page: 100,
+    });
+    return branches.map((b) => b.name);
   });
 }
 

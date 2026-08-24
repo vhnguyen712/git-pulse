@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `sync_branch` text;

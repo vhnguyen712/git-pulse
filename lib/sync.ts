@@ -4,7 +4,7 @@ import { projects, aiSummaries, actionItems } from "@/lib/db/schema";
 import type { ActionItem, Project } from "@/lib/db/schema";
 import {
   getRepo,
-  getDefaultBranchHeadSha,
+  getBranchHeadSha,
   compare,
   listRecentCommits,
   getReadme,
@@ -41,14 +41,22 @@ export interface SyncResult {
  * clients (GitHubConfigError, GitHubRateLimitError, LlmConfigError,
  * LlmOutputError) — callers translate those to their own response shape.
  */
-export async function syncProject(owner: string, repo: string): Promise<SyncResult> {
-  // 1. Find or create the pinned project row.
+export async function syncProject(
+  owner: string,
+  repo: string,
+  branch?: string,
+): Promise<SyncResult> {
+  // 1. Resolve live repo metadata up front so the default branch is always
+  // GitHub's current one (not a possibly-stale cached column) and self-heal
+  // the stored value if it has drifted.
+  const meta = await getRepo(owner, repo);
+
+  // 2. Find or create the pinned project row.
   let project = await db.query.projects.findFirst({
     where: (p, { and, eq }) => and(eq(p.owner, owner), eq(p.repoName, repo)),
   });
 
   if (!project) {
-    const meta = await getRepo(owner, repo);
     const [created] = await db
       .insert(projects)
       .values({
@@ -57,13 +65,44 @@ export async function syncProject(owner: string, repo: string): Promise<SyncResu
         repoName: repo,
         repoUrl: meta.htmlUrl,
         defaultBranch: meta.defaultBranch,
+        // A branch explicitly picked at first sync is only stored when it
+        // differs from the default — null keeps "follow the default branch".
+        syncBranch: branch && branch !== meta.defaultBranch ? branch : null,
       })
       .returning();
     project = created;
+  } else if (project.defaultBranch !== meta.defaultBranch) {
+    await db
+      .update(projects)
+      .set({ defaultBranch: meta.defaultBranch })
+      .where(and(eq(projects.id, project.id)));
+    project = { ...project, defaultBranch: meta.defaultBranch };
   }
 
-  // 2. Resolve the commit range to analyze.
-  const headSha = await getDefaultBranchHeadSha(owner, repo, project.defaultBranch);
+  // 3. Resolve which branch to sync. An explicit `branch` overrides the
+  // stored choice; otherwise fall back to the stored branch, then the default.
+  const previousBranch = project.syncBranch ?? project.defaultBranch;
+  const targetBranch = branch ?? previousBranch;
+  const branchChanged = targetBranch !== previousBranch;
+
+  if (branchChanged) {
+    // Switching branches invalidates the old cursor (its base sha lives on a
+    // different branch), so re-baseline: persist the new branch and treat the
+    // next sync as a fresh one. Storing null when it matches the default keeps
+    // the column meaning "follow the default branch".
+    project = {
+      ...project,
+      syncBranch: targetBranch === project.defaultBranch ? null : targetBranch,
+      lastSyncedSha: null,
+    };
+    await db
+      .update(projects)
+      .set({ syncBranch: project.syncBranch })
+      .where(and(eq(projects.id, project.id)));
+  }
+
+  // 4. Resolve the commit range to analyze.
+  const headSha = await getBranchHeadSha(owner, repo, targetBranch);
   const baseSha = project.lastSyncedSha ?? FIRST_SYNC_BASE;
 
   if (baseSha === headSha) {
@@ -86,7 +125,7 @@ export async function syncProject(owner: string, repo: string): Promise<SyncResu
     getOpenIssues(owner, repo),
   ]);
 
-  // 3. Reuse a cached analysis for this exact commit range if we have one.
+  // 5. Reuse a cached analysis for this exact commit range if we have one.
   let analysis: Analysis;
   let summaryId: string;
   let usage: TokenUsage | null = null;
@@ -158,7 +197,7 @@ export async function syncProject(owner: string, repo: string): Promise<SyncResu
     }
   }
 
-  // 4. Advance the sync cursor.
+  // 6. Advance the sync cursor.
   await db
     .update(projects)
     .set({ lastSyncedSha: headSha, lastSyncedAt: Date.now() })

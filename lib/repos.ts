@@ -10,6 +10,8 @@ export interface RepoCardData {
   fullName: string;
   htmlUrl: string;
   defaultBranch: string;
+  /** Branch this repo will sync: the user's stored choice, or the default. */
+  syncBranch: string;
   language: string | null;
   openIssuesCount: number;
   pushedAt: string | null;
@@ -74,6 +76,7 @@ export async function getRepoCards(opts: { force?: boolean } = {}): Promise<Repo
       fullName: r.fullName,
       htmlUrl: r.htmlUrl,
       defaultBranch: r.defaultBranch,
+      syncBranch: project?.syncBranch ?? r.defaultBranch,
       language: r.language,
       openIssuesCount: r.openIssuesCount,
       pushedAt: r.pushedAt,

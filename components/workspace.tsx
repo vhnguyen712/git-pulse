@@ -16,6 +16,7 @@ import type { ActionItem, Project } from "@/lib/db/schema";
 import type { Analysis } from "@/lib/schema";
 import { MonoText, shortSha } from "@/components/mono-text";
 import { PulseIndicator } from "@/components/pulse-indicator";
+import { BranchSelect } from "@/components/branch-select";
 import { ActionItemCard } from "@/components/action-item-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { timeAgo } from "@/lib/format";
@@ -46,6 +47,7 @@ export function Workspace({
   const [analysis, setAnalysis] = useState<Analysis | null>(initial.latestSummary);
   const [items, setItems] = useState<ActionItem[]>(initial.actionItems);
 
+  const [branch, setBranch] = useState(initial.syncBranch);
   const [syncing, setSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<SyncErrorInfo | null>(null);
@@ -61,7 +63,7 @@ export function Workspace({
       const res = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner, repo: repoName }),
+        body: JSON.stringify({ owner, repo: repoName, branch }),
       });
       const body = await res.json().catch(() => ({}));
 
@@ -173,6 +175,14 @@ export function Workspace({
             GitHub
             <ExternalLink className="size-3" />
           </a>
+          <BranchSelect
+            owner={owner}
+            repo={repoName}
+            value={branch}
+            onChange={setBranch}
+            disabled={syncing}
+            align="right"
+          />
           <button
             onClick={handleSync}
             disabled={syncing}

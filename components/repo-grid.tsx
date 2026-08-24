@@ -6,12 +6,16 @@ import { RefreshCw } from "lucide-react";
 import type { RepoCardData } from "@/lib/repos";
 import { RepoCard } from "@/components/repo-card";
 
-async function syncRepo(owner: string, name: string): Promise<{ error?: string }> {
+async function syncRepo(
+  owner: string,
+  name: string,
+  branch: string,
+): Promise<{ error?: string }> {
   try {
     const res = await fetch("/api/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ owner, repo: name }),
+      body: JSON.stringify({ owner, repo: name, branch }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -28,7 +32,12 @@ export function RepoGrid({ repos }: { repos: RepoCardData[] }) {
   const [syncing, setSyncing] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // Per-repo branch overrides (key = "owner/name"). Absent = use repo.syncBranch.
+  const [branchByRepo, setBranchByRepo] = useState<Record<string, string>>({});
   const [, startRefresh] = useTransition();
+
+  const branchFor = (repo: RepoCardData) =>
+    branchByRepo[repo.fullName] ?? repo.syncBranch;
 
   async function handleRefreshList() {
     setRefreshing(true);
@@ -42,11 +51,11 @@ export function RepoGrid({ repos }: { repos: RepoCardData[] }) {
     }
   }
 
-  async function handleSync(owner: string, name: string) {
+  async function handleSync(owner: string, name: string, branch: string) {
     const key = `${owner}/${name}`;
     setSyncing((s) => new Set(s).add(key));
     setError(null);
-    const result = await syncRepo(owner, name);
+    const result = await syncRepo(owner, name, branch);
     setSyncing((s) => {
       const next = new Set(s);
       next.delete(key);
@@ -60,7 +69,7 @@ export function RepoGrid({ repos }: { repos: RepoCardData[] }) {
   }
 
   async function handleSyncAll() {
-    await Promise.all(repos.map((r) => handleSync(r.owner, r.name)));
+    await Promise.all(repos.map((r) => handleSync(r.owner, r.name, branchFor(r))));
   }
 
   if (repos.length === 0) {
@@ -110,7 +119,11 @@ export function RepoGrid({ repos }: { repos: RepoCardData[] }) {
             key={repo.fullName}
             repo={repo}
             syncing={syncing.has(`${repo.owner}/${repo.name}`)}
-            onSync={() => handleSync(repo.owner, repo.name)}
+            branch={branchFor(repo)}
+            onBranchChange={(branch) =>
+              setBranchByRepo((m) => ({ ...m, [repo.fullName]: branch }))
+            }
+            onSync={() => handleSync(repo.owner, repo.name, branchFor(repo))}
           />
         ))}
       </div>
