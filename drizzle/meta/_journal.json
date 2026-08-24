@@ -29,6 +29,13 @@
       "when": 1787559412231,
       "tag": "0003_glossy_grey_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787565200423,
+      "tag": "0004_red_radioactive_man",
+      "breakpoints": true
     }
   ]
 }

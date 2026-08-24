@@ -1,19 +1,8 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { actionItems } from "@/lib/db/schema";
-import {
-  createIssue,
-  GitHubConfigError,
-  GitHubRateLimitError,
-} from "@/lib/github";
+import { publishActionItem } from "@/lib/issues";
+import { GitHubConfigError, GitHubRateLimitError } from "@/lib/github";
 import { createIssueRequestSchema } from "@/lib/schema";
 import { logger } from "@/lib/logging";
-
-function issueBody(description: string | null, source: string): string {
-  const kind = source === "next_step" ? "Next step" : "Brainstorm idea";
-  return `${description ?? ""}\n\n---\n_Suggested by GitPulse AI (${kind})._`;
-}
 
 export async function POST(req: Request) {
   let body: unknown;
@@ -29,50 +18,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    const item = await db.query.actionItems.findFirst({
-      where: (a, { eq }) => eq(a.id, parsed.data.actionItemId),
-    });
-    if (!item) {
-      return NextResponse.json({ error: "Action item not found." }, { status: 404 });
+    const result = await publishActionItem(parsed.data.actionItemId);
+    if (!result.ok) {
+      const status =
+        result.code === "dismissed" ? 409 : result.code === "not_found" ? 404 : 404;
+      return NextResponse.json({ error: result.message }, { status });
     }
-
-    // Idempotency: already synced (or dismissed) means "push" is a no-op —
-    // return the current state instead of filing a duplicate issue.
-    if (item.status === "synced") {
-      return NextResponse.json({ actionItem: item, created: false });
-    }
-    if (item.status === "dismissed") {
-      return NextResponse.json(
-        { error: "This item was dismissed and can't be pushed." },
-        { status: 409 },
-      );
-    }
-
-    const project = await db.query.projects.findFirst({
-      where: (p, { eq }) => eq(p.id, item.projectId),
-    });
-    if (!project) {
-      return NextResponse.json({ error: "Project not found." }, { status: 404 });
-    }
-
-    const issue = await createIssue(
-      project.owner,
-      project.repoName,
-      item.title,
-      issueBody(item.description, item.source),
-    );
-
-    const [updated] = await db
-      .update(actionItems)
-      .set({
-        status: "synced",
-        githubIssueNumber: issue.number,
-        githubIssueUrl: issue.htmlUrl,
-      })
-      .where(eq(actionItems.id, item.id))
-      .returning();
-
-    return NextResponse.json({ actionItem: updated, created: true });
+    return NextResponse.json({ actionItem: result.actionItem, created: result.created });
   } catch (err) {
     if (err instanceof GitHubConfigError) {
       return NextResponse.json({ error: err.message }, { status: 500 });

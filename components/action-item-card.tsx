@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ExternalLink, Upload } from "lucide-react";
+import { CheckCircle2, ExternalLink, SquareTerminal, Upload } from "lucide-react";
 import type { ActionItem } from "@/lib/db/schema";
 import {
   StatusBadge,
@@ -9,16 +9,40 @@ import {
 } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
 
+/**
+ * Task prompt for an action item: references the GitHub issue once the item
+ * has been pushed, and falls back to the raw suggestion beforehand. Used to
+ * pre-fill the embedded terminal panel.
+ */
+function buildPrompt(item: ActionItem): string {
+  const lines: string[] =
+    item.githubIssueNumber && item.githubIssueUrl
+      ? [
+          `Work on GitHub issue #${item.githubIssueNumber}: ${item.title}`,
+          ...(item.description ? ["", item.description] : []),
+          "",
+          `Issue: ${item.githubIssueUrl}`,
+        ]
+      : [
+          `Implement this task: ${item.title}`,
+          ...(item.description ? ["", item.description] : []),
+        ];
+  return lines.join("\n");
+}
+
 export function ActionItemCard({
   item,
   pushing,
   error,
   onPush,
+  onOpenTerminal,
 }: {
   item: ActionItem;
   pushing: boolean;
   error?: string;
   onPush: () => void;
+  /** Opens the embedded terminal panel with this item's prompt pre-filled. */
+  onOpenTerminal: (prompt: string) => void;
 }) {
   const canPush = item.status === "suggested" || item.status === "approved";
   const isSynced = item.status === "synced";
@@ -49,7 +73,7 @@ export function ActionItemCard({
 
       {error && <p className="text-xs text-accent-orange">{error}</p>}
 
-      <div className="mt-1">
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
         {isSynced && item.githubIssueUrl ? (
           <a
             href={item.githubIssueUrl}
@@ -74,6 +98,15 @@ export function ActionItemCard({
             {pushing ? "Pushing…" : "Push to GitHub Issue"}
           </button>
         )}
+
+        <button
+          onClick={() => onOpenTerminal(buildPrompt(item))}
+          title="Open a claude session for this task, embedded right here"
+          className="inline-flex items-center gap-1 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:bg-white/5 hover:text-on-surface"
+        >
+          <SquareTerminal className="size-3" />
+          Open in Claude Code
+        </button>
       </div>
     </div>
   );

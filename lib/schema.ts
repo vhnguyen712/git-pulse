@@ -48,6 +48,22 @@ export const createIssueRequestSchema = z.object({
 export type CreateIssueRequest = z.infer<typeof createIssueRequestSchema>;
 
 /**
+ * Body for PATCH /api/projects. Sets the absolute path to a project's local
+ * clone, used to open an embedded terminal in that directory. Accepts a
+ * Windows drive path (`C:\...` or `C:/...`) or a POSIX absolute path
+ * (`/...`) — the app itself only runs locally, but the DB has no other way
+ * to know the shape of the host filesystem.
+ */
+export const updateProjectLocalPathSchema = z.object({
+  projectId: z.string().min(1),
+  localPath: z
+    .string()
+    .min(1)
+    .regex(/^([a-zA-Z]:[\\/]|\/)/, "Must be an absolute path."),
+});
+export type UpdateProjectLocalPathRequest = z.infer<typeof updateProjectLocalPathSchema>;
+
+/**
  * Body for POST /api/settings. All fields optional — only keys present are
  * updated (see lib/settings.ts#upsertSettings); an empty string clears a
  * field back to its env-var fallback.
