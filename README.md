@@ -1,36 +1,116 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GitPulse AI
 
-## Getting Started
+A self-hosted, single-user dashboard that turns your GitHub commit history
+into a progress summary, a prioritized next-step plan, and issue-ready ideas
+— so you stop losing context on side-projects you haven't touched in weeks.
 
-First, run the development server:
+Point it at a repo, click **Sync now**, and it will:
+
+1. Pull the commits since your last sync (via GitHub's Compare API).
+2. Ask an LLM to summarize what was built, suggest next steps, and brainstorm
+   improvements — returned as validated, structured JSON.
+3. Let you push any suggestion straight to a GitHub Issue with one click.
+
+Everything runs locally. See [Security & Your Token](#security--your-token)
+before you connect a real account.
+
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000) — it'll prompt you to
+[Settings](http://127.0.0.1:3000/settings) to enter your GitHub token and LLM
+credentials. The SQLite database is created automatically at
+`.gitpulse/data.db` on first run (migrations apply themselves — no separate
+step needed).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Configuration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Configure everything from the **Settings** page in the UI — values are saved
+to the local SQLite DB and take effect immediately, no restart needed.
 
-## Learn More
+`.env.local` remains supported as a fallback (handy for headless/Docker runs,
+or to bake in defaults before first launch); anything set in Settings
+overrides it. Copy `.env.example` to `.env.local` if you want to use it:
 
-To learn more about Next.js, take a look at the following resources:
+| Variable       | Notes                                                                     |
+| -------------- | -------------------------------------------------------------------------- |
+| `GITHUB_TOKEN` | Fine-grained PAT — see scopes below.                                       |
+| `LLM_BASE_URL` | Any OpenAI-compatible endpoint (OpenAI, OpenRouter, Groq, local Ollama…).   |
+| `LLM_API_KEY`  | API key for that endpoint.                                                 |
+| `LLM_MODEL`    | Model name as expected by that endpoint.                                   |
+| `CRON_SECRET`  | Bearer token required by `/api/cron/sync` — see Auto-sync below.           |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Auto-sync (optional)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`POST /api/cron/sync` re-syncs every pinned project whose repo has been
+pushed to since its last sync — the same background job the "Sync now"
+button runs, just for all stale repos at once (capped at 10 per run, spaced
+out to stay under GitHub's rate limits). It's not called automatically; wire
+it up to a scheduler if you want the dashboard to stay current without
+clicking Sync.
 
-## Deploy on Vercel
+1. Set a **Cron secret** in [Settings](http://127.0.0.1:3000/settings)
+   (or `CRON_SECRET` in `.env.local`).
+2. On Windows, create a Task Scheduler task that runs periodically (e.g.
+   every 30 minutes) while the app is running:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+   ```powershell
+   powershell -Command "Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/api/cron/sync -Headers @{Authorization='Bearer <your-cron-secret>'}"
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+   Register it non-interactively with `schtasks`:
+
+   ```powershell
+   schtasks /Create /SC MINUTE /MO 30 /TN "GitPulse Auto-Sync" /TR "powershell -Command \"Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/api/cron/sync -Headers @{Authorization='Bearer <your-cron-secret>'}\""
+   ```
+
+A request without the correct `Authorization: Bearer <secret>` header gets a
+`401`; without any secret configured, a `500` telling you to set one.
+
+## Security & Your Token
+
+This app is designed to run **locally, for one person**. The security model
+reflects that — it is not built for multi-tenant or public deployment.
+
+- **Where your token lives:** whether entered via **Settings** or
+  `.env.local`, your GitHub token and LLM API key are only ever read by the
+  Next.js **server** process. They are never sent to the browser, never
+  appear in client-side JavaScript, and never get logged (an outgoing-log
+  redactor strips anything that looks like a token or `Authorization`
+  header). The Settings page itself is write-only for secrets — after
+  saving, the API only ever returns a masked `••••1234` form, never the
+  full value, so it can't leak back out through the browser, devtools, or a
+  screen share.
+- **Where your token does *not* go:** every GitHub and LLM API call happens
+  server-side, behind `app/api/**` routes. The browser only ever talks to
+  your own local server.
+- **What leaves your machine:** requests only go to `api.github.com` and
+  whichever LLM base URL you configured. Nothing else.
+- **Minimum PAT scopes** (fine-grained token):
+  - `Contents: Read-only` — commit history, file diffs, README.
+  - `Metadata: Read-only` — repository listing.
+  - `Issues: Read & Write` — read open issues, create new ones from AI suggestions.
+  - `Pull requests: Read` — only if you view PR data.
+- **Local data:** the SQLite database (`.gitpulse/data.db`, which now also
+  holds anything saved via Settings) and `.env.local` are both git-ignored.
+  If you fork/clone this repo, double check `git status` never shows them
+  before you push.
+- **Network binding:** the dev server binds to `127.0.0.1` — not exposed to
+  your LAN.
+
+If a token is ever compromised, revoke it from
+[github.com/settings/tokens](https://github.com/settings/tokens) immediately
+— its scope is limited on purpose to cap the blast radius.
+
+## Tech stack
+
+Next.js (App Router) + TypeScript · Tailwind CSS + shadcn/ui · `@octokit/rest`
+· OpenAI SDK (custom `baseURL`) · SQLite via Drizzle ORM · Zod validation.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

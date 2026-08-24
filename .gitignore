@@ -36,6 +36,15 @@ yarn-error.log*
 # vercel
 .vercel
 
+# GitPulse AI local data — SQLite DB, never commit real analysis/tokens
+/.gitpulse/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
