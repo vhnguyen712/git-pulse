@@ -12,6 +12,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { TerminalDock } from "@/components/terminal-panel";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutGrid },
@@ -64,9 +65,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen w-full bg-surface">
+    <div className="flex h-screen w-full overflow-hidden bg-surface">
       {/* Desktop / tablet sidebar — icon rail 768–1280px, full sidebar >1280px */}
-      <aside className="hidden shrink-0 border-r border-outline-variant bg-surface-container-low md:flex md:w-14 md:flex-col md:gap-4 md:p-2 xl:w-56 xl:p-3">
+      <aside className="hidden shrink-0 overflow-y-auto border-r border-outline-variant bg-surface-container-low md:flex md:w-14 md:flex-col md:gap-4 md:p-2 xl:w-56 xl:p-3">
         <Brand collapsed />
         <div className="hidden xl:block">
           <Brand />
@@ -103,7 +104,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Brand />
         </header>
 
-        <main className="flex-1 overflow-x-hidden">{children}</main>
+        <main className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{children}</main>
+        <TerminalDock />
       </div>
     </div>
   );

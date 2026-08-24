@@ -24,7 +24,7 @@ export function HistoryTimeline({ history }: { history: SyncHistoryEntry[] }) {
   const hasCost = history.some((h) => h.estimatedCostUsd != null);
 
   return (
-    <section className="flex flex-col gap-4 border-t border-outline-variant p-4 sm:p-6">
+    <section className="flex flex-col gap-4 p-4 sm:p-6">
       <div className="flex items-center gap-1.5 text-on-surface">
         <History className="size-4" />
         <h2 className="font-heading text-sm font-semibold">History</h2>
