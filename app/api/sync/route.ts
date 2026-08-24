@@ -42,6 +42,12 @@ export async function POST(req: Request) {
       );
     }
     logger.error("POST /api/sync failed", err);
-    return NextResponse.json({ error: "Sync failed." }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: "Sync failed.",
+        detail: err instanceof Error ? err.message : undefined,
+      },
+      { status: 500 },
+    );
   }
 }

@@ -6,6 +6,7 @@ import {
   getRepo,
   getBranchHeadSha,
   compare,
+  GitHubNoCommonHistoryError,
   listRecentCommits,
   getReadme,
   getOpenIssues,
@@ -111,13 +112,26 @@ export async function syncProject(
 
   let commits: CompareCommit[];
   let files: CompareFile[];
+  // May be reset to FIRST_SYNC_BASE below if the stored base can't be diffed —
+  // the analysis is then keyed/stored as a fresh first sync.
+  let effectiveBase = baseSha;
   if (baseSha === FIRST_SYNC_BASE) {
     commits = await listRecentCommits(owner, repo, FIRST_SYNC_COMMIT_COUNT);
     files = []; // no single base ref to diff against on a first sync
   } else {
-    const cmp = await compare(owner, repo, baseSha, headSha);
-    commits = cmp.commits;
-    files = cmp.files;
+    try {
+      const cmp = await compare(owner, repo, baseSha, headSha);
+      commits = cmp.commits;
+      files = cmp.files;
+    } catch (err) {
+      if (!(err instanceof GitHubNoCommonHistoryError)) throw err;
+      // The stored base sha no longer shares history with head (rewritten or
+      // rebased history, or a branch switch to unrelated history). Re-baseline:
+      // analyze recent commits as if this were the project's first sync.
+      effectiveBase = FIRST_SYNC_BASE;
+      commits = await listRecentCommits(owner, repo, FIRST_SYNC_COMMIT_COUNT);
+      files = [];
+    }
   }
 
   const [readme, openIssues] = await Promise.all([
@@ -133,7 +147,7 @@ export async function syncProject(
     where: (s, { and, eq }) =>
       and(
         eq(s.projectId, project!.id),
-        eq(s.baseSha, baseSha),
+        eq(s.baseSha, effectiveBase),
         eq(s.headSha, headSha),
       ),
   });
@@ -159,7 +173,7 @@ export async function syncProject(
     await db.insert(aiSummaries).values({
       id: summaryId,
       projectId: project.id,
-      baseSha,
+      baseSha: effectiveBase,
       headSha,
       summaryJson: JSON.stringify(analysis),
       model: process.env.LLM_MODEL,

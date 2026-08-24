@@ -19,7 +19,8 @@ async function syncRepo(
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      return { error: body.error ?? `Sync failed (${res.status})` };
+      const base = body.error ?? `Sync failed (${res.status})`;
+      return { error: body.detail ? `${base} ${body.detail}` : base };
     }
     return {};
   } catch {
