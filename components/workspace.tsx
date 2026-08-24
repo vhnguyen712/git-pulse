@@ -67,8 +67,8 @@ export function Workspace({
   const [pushErrors, setPushErrors] = useState<Record<string, string>>({});
 
   const { openTerminal } = useTerminal();
-  function handleOpenTerminal(prompt: string) {
-    if (project) openTerminal(project, prompt);
+  function handleOpenTerminal(prompt: string, title: string) {
+    if (project) openTerminal(project, prompt, title);
   }
 
   const [activeTab, setActiveTab] = useState<TabKey>("git");

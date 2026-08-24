@@ -3,16 +3,22 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { Project } from "@/lib/db/schema";
 
-interface TerminalSession {
+export interface TerminalSession {
+  /** Stable client-generated id — also used as the pty sessionId on the server. */
+  id: string;
   project: Project;
   prompt: string;
+  /** Short label for the tab (e.g. the action item's title). */
+  title: string;
 }
 
 interface TerminalContextValue {
-  session: TerminalSession | null;
+  sessions: TerminalSession[];
+  activeId: string | null;
   height: number;
-  openTerminal: (project: Project, prompt: string) => void;
-  closeTerminal: () => void;
+  openTerminal: (project: Project, prompt: string, title: string) => void;
+  activateSession: (id: string) => void;
+  closeSession: (id: string) => void;
   updateProject: (project: Project) => void;
   setHeight: (height: number) => void;
 }
@@ -24,23 +30,54 @@ const DEFAULT_HEIGHT = 320;
 const MAX_HEIGHT_RATIO = 0.85;
 
 /**
- * Holds the embedded terminal's session (which project/prompt, if any) and
- * its user-adjusted height at the app-shell level — outside the `{children}`
- * that Next.js swaps on navigation — so the terminal (and its live WebSocket
- * connection) survives moving between pages instead of unmounting.
+ * Holds the embedded terminal's open sessions (one `claude` tab each) and its
+ * user-adjusted height at the app-shell level — outside the `{children}` that
+ * Next.js swaps on navigation — so the terminals (and their live WebSocket
+ * connections) survive moving between pages instead of unmounting.
  */
 export function TerminalProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<TerminalSession | null>(null);
+  const [sessions, setSessions] = useState<TerminalSession[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [height, setHeightState] = useState(DEFAULT_HEIGHT);
 
-  const openTerminal = useCallback((project: Project, prompt: string) => {
-    setSession({ project, prompt });
+  const openTerminal = useCallback((project: Project, prompt: string, title: string) => {
+    setSessions((prev) => {
+      // Re-opening the same task just refocuses its existing tab rather than
+      // spawning a duplicate `claude` session for it.
+      const existing = prev.find((s) => s.project.id === project.id && s.prompt === prompt);
+      if (existing) {
+        setActiveId(existing.id);
+        return prev;
+      }
+      const session: TerminalSession = {
+        id: crypto.randomUUID(),
+        project,
+        prompt,
+        title: title.trim() || `${project.owner}/${project.repoName}`,
+      };
+      setActiveId(session.id);
+      return [...prev, session];
+    });
   }, []);
 
-  const closeTerminal = useCallback(() => setSession(null), []);
+  const activateSession = useCallback((id: string) => setActiveId(id), []);
+
+  const closeSession = useCallback((id: string) => {
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      setActiveId((current) => {
+        if (current !== id) return current;
+        // Closed the active tab — fall back to the last remaining one.
+        return next.length > 0 ? next[next.length - 1].id : null;
+      });
+      return next;
+    });
+  }, []);
 
   const updateProject = useCallback((project: Project) => {
-    setSession((s) => (s ? { ...s, project } : s));
+    setSessions((prev) =>
+      prev.map((s) => (s.project.id === project.id ? { ...s, project } : s)),
+    );
   }, []);
 
   const setHeight = useCallback((next: number) => {
@@ -49,8 +86,17 @@ export function TerminalProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ session, height, openTerminal, closeTerminal, updateProject, setHeight }),
-    [session, height, openTerminal, closeTerminal, updateProject, setHeight],
+    () => ({
+      sessions,
+      activeId,
+      height,
+      openTerminal,
+      activateSession,
+      closeSession,
+      updateProject,
+      setHeight,
+    }),
+    [sessions, activeId, height, openTerminal, activateSession, closeSession, updateProject, setHeight],
   );
 
   return <TerminalContext.Provider value={value}>{children}</TerminalContext.Provider>;
