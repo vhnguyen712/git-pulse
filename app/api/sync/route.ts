@@ -20,10 +20,10 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const { owner, repo } = parsed.data;
+  const { owner, repo, branch } = parsed.data;
 
   try {
-    const result = await syncProject(owner, repo);
+    const result = await syncProject(owner, repo, branch);
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof GitHubConfigError || err instanceof LlmConfigError) {

@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
-import { listRecentCommits, type CompareCommit } from "@/lib/github";
+import { listRecentCommits, getRepo, type CompareCommit } from "@/lib/github";
 import type { Analysis } from "@/lib/schema";
 import type { ActionItem, Project } from "@/lib/db/schema";
 import { getProjectHistory, type SyncHistoryEntry } from "@/lib/history";
@@ -14,6 +14,8 @@ export interface WorkspaceData {
   latestSummary: Analysis | null;
   actionItems: ActionItem[];
   history: SyncHistoryEntry[];
+  /** Branch the "Sync now" button will target: the stored choice, or the repo default. */
+  syncBranch: string;
 }
 
 /**
@@ -36,6 +38,11 @@ export async function getWorkspaceData(
   let latestSummary: Analysis | null = null;
   let items: ActionItem[] = [];
   let history: SyncHistoryEntry[] = [];
+  // Pre-select the branch the picker should show: the user's stored override,
+  // or GitHub's live default branch. Resolving the default live (rather than
+  // trusting the possibly-stale projects.default_branch column) keeps this in
+  // step with the Overview grid, which reads the default from listRepos.
+  const syncBranch = project?.syncBranch ?? (await getRepo(owner, repo)).defaultBranch;
 
   if (project) {
     const summaryRow = await db.query.aiSummaries.findFirst({
@@ -60,5 +67,5 @@ export async function getWorkspaceData(
       .where(eq(projects.id, project.id));
   }
 
-  return { project: project ?? null, commits, latestSummary, actionItems: items, history };
+  return { project: project ?? null, commits, latestSummary, actionItems: items, history, syncBranch };
 }

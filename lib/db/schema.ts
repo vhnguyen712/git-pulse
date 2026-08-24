@@ -9,7 +9,14 @@ export const projects = sqliteTable(
     owner: text("owner").notNull(),
     repoName: text("repo_name").notNull(),
     repoUrl: text("repo_url").notNull(),
+    /** The repo's default branch on GitHub, cached at pin time. */
     defaultBranch: text("default_branch").notNull().default("main"),
+    /**
+     * Branch the user chose to sync, when different from the default. Null
+     * means "follow the default branch" — so a fresh pin (and every existing
+     * row) keeps syncing `defaultBranch` with no extra config.
+     */
+    syncBranch: text("sync_branch"),
     /** HEAD sha as of the last successful sync — base for the next `compare` call. */
     lastSyncedSha: text("last_synced_sha"),
     lastSyncedAt: integer("last_synced_at"),

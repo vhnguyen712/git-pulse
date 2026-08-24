@@ -6,15 +6,20 @@ import type { RepoCardData } from "@/lib/repos";
 import { timeAgo } from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
 import { PulseIndicator } from "@/components/pulse-indicator";
+import { BranchSelect } from "@/components/branch-select";
 import { cn } from "@/lib/utils";
 
 export function RepoCard({
   repo,
   syncing,
+  branch,
+  onBranchChange,
   onSync,
 }: {
   repo: RepoCardData;
   syncing: boolean;
+  branch: string;
+  onBranchChange: (branch: string) => void;
   onSync: () => void;
 }) {
   const href = `/project/${repo.owner}/${repo.name}`;
@@ -62,6 +67,14 @@ export function RepoCard({
           )}
         </div>
         <div className="flex items-center gap-1">
+          <BranchSelect
+            owner={repo.owner}
+            repo={repo.name}
+            value={branch}
+            onChange={onBranchChange}
+            disabled={syncing}
+            align="right"
+          />
           <button
             onClick={onSync}
             disabled={syncing}

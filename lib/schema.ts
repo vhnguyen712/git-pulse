@@ -36,6 +36,8 @@ export type BrainstormIdea = Analysis["brainstorm_ideas"][number];
 export const syncRequestSchema = z.object({
   owner: z.string().min(1),
   repo: z.string().min(1),
+  /** Optional branch to sync; when omitted the project's stored/default branch is used. */
+  branch: z.string().min(1).optional(),
 });
 export type SyncRequest = z.infer<typeof syncRequestSchema>;
 
