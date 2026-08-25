@@ -5,6 +5,7 @@ import type { WebSocket } from "ws";
 import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logging";
+import { createSessionWorktree, isGitRepo, removeSessionWorktree } from "@/lib/terminal/worktree";
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -27,11 +28,32 @@ interface TerminalSession {
   buffer: string;
   ws: WebSocket | null;
   disconnectTimer: ReturnType<typeof setTimeout> | null;
+  /** The main clone this session's worktree belongs to (null when not running
+   * in a dedicated worktree — e.g. the localPath isn't a git repo). */
+  repoPath: string | null;
+  /** Dedicated git worktree this session's `claude` runs in, removed when the
+   * pty exits for good. Null when running directly in the repo (see above). */
+  worktreePath: string | null;
 }
 
 // Keyed by the client-generated sessionId (see components/terminal-panel.tsx),
 // not by socket — that's what lets a new socket reattach to an existing pty.
 const sessions = new Map<string, TerminalSession>();
+
+/**
+ * Normalized, lower-cased paths of worktrees backing a currently-live session,
+ * so the worktree-cleanup API (app/api/worktrees) can refuse to remove one
+ * that's still in use — its `claude` is mid-task and would lose its directory
+ * out from under it. Runs in the same process as the API routes (see
+ * server.ts), so this in-memory view is authoritative.
+ */
+export function activeWorktreePaths(): Set<string> {
+  const paths = new Set<string>();
+  for (const s of sessions.values()) {
+    if (s.worktreePath) paths.add(path.normalize(s.worktreePath).toLowerCase());
+  }
+  return paths;
+}
 
 /**
  * Attaches a WebSocket to a real `claude` process running in a project's
@@ -100,10 +122,27 @@ export async function attachTerminal(ws: WebSocket, req: IncomingMessage) {
     return;
   }
 
+  // Give each session its own git worktree so concurrent terminals don't share
+  // (and clobber) one working tree. Falls back to the repo itself when it isn't
+  // a git repo or the worktree can't be created — behavior is unchanged there.
+  let cwd = project.localPath;
+  let repoPath: string | null = null;
+  let worktreePath: string | null = null;
+  if (await isGitRepo(project.localPath)) {
+    repoPath = project.localPath;
+    worktreePath = await createSessionWorktree(
+      project.localPath,
+      sessionId,
+      project.syncBranch ?? project.defaultBranch,
+    );
+    if (worktreePath) cwd = worktreePath;
+    else repoPath = null; // creation failed; nothing to clean up later
+  }
+
   let child: pty.IPty;
   try {
     child = pty.spawn(claudePath, [], {
-      cwd: project.localPath,
+      cwd,
       cols,
       rows,
       name: "xterm-256color",
@@ -111,6 +150,9 @@ export async function attachTerminal(ws: WebSocket, req: IncomingMessage) {
     });
   } catch (err) {
     logger.error("Failed to spawn claude for embedded terminal", err);
+    if (repoPath && worktreePath) {
+      void removeSessionWorktree(repoPath, worktreePath);
+    }
     ws.close(4005, "Failed to start claude.");
     return;
   }
@@ -122,6 +164,8 @@ export async function attachTerminal(ws: WebSocket, req: IncomingMessage) {
     buffer: "",
     ws,
     disconnectTimer: null,
+    repoPath,
+    worktreePath,
   };
   sessions.set(sessionId, session);
 
@@ -139,6 +183,12 @@ export async function attachTerminal(ws: WebSocket, req: IncomingMessage) {
   child.onExit(({ exitCode }) => {
     if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
     sessions.delete(session.id);
+    // Single teardown point for the session's worktree: every path that ends a
+    // session (natural exit, user kill, reconnect-grace expiry) kills the pty,
+    // which lands here. A non-force remove keeps any uncommitted work on disk.
+    if (session.repoPath && session.worktreePath) {
+      void removeSessionWorktree(session.repoPath, session.worktreePath);
+    }
     if (session.ws && session.ws.readyState === session.ws.OPEN) {
       session.ws.close(1000, `claude exited (${exitCode})`);
     }
