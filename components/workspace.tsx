@@ -20,6 +20,7 @@ import type { Analysis } from "@/lib/schema";
 import { MonoText, shortSha } from "@/components/mono-text";
 import { PulseIndicator } from "@/components/pulse-indicator";
 import { BranchSelect } from "@/components/branch-select";
+import { WorktreesPanel } from "@/components/worktrees-panel";
 import { ActionItemCard } from "@/components/action-item-card";
 import { StatusBadge } from "@/components/status-badge";
 import { useTerminal } from "@/components/terminal-context";
@@ -267,6 +268,7 @@ export function Workspace({
             GitHub
             <ExternalLink className="size-3" />
           </a>
+          {project?.localPath && <WorktreesPanel projectId={project.id} />}
           <BranchSelect
             owner={owner}
             repo={repoName}
