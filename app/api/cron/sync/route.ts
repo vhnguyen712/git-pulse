@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
 import { listRepos, GitHubConfigError, GitHubRateLimitError } from "@/lib/github";
 import { syncProject, isProjectStale } from "@/lib/sync";
-import { LlmConfigError, LlmOutputError } from "@/lib/llm";
+import { LlmConfigError, LlmOutputError, LlmUnavailableError } from "@/lib/llm";
 import { resolveSettings } from "@/lib/settings";
 import { logger } from "@/lib/logging";
 
@@ -19,7 +19,7 @@ function sleep(ms: number) {
 interface RunEntry {
   owner: string;
   repo: string;
-  result: "synced" | "up_to_date" | "error";
+  result: "synced" | "up_to_date" | "error" | "analysis_unavailable";
   error?: string;
 }
 
@@ -69,7 +69,12 @@ export async function POST(req: Request) {
         results.push({
           owner: project.owner,
           repo: project.repoName,
-          result: result.upToDate ? "up_to_date" : "synced",
+          result: result.analysisUnavailable
+            ? "analysis_unavailable"
+            : result.upToDate
+              ? "up_to_date"
+              : "synced",
+          error: result.analysisError,
         });
       } catch (err) {
         logger.error(`cron sync failed for ${project.owner}/${project.repoName}`, err);
@@ -102,6 +107,12 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "llm_invalid_output", message: err.message },
         { status: 502 },
+      );
+    }
+    if (err instanceof LlmUnavailableError) {
+      return NextResponse.json(
+        { error: "llm_unavailable", message: err.message },
+        { status: 503 },
       );
     }
     logger.error("POST /api/cron/sync failed", err);
