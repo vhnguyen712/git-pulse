@@ -66,7 +66,7 @@ export function ActionItemCard({
   onOpenTerminal: (prompt: string, title: string) => void;
 }) {
   const canPush = item.status === "suggested" || item.status === "approved";
-  const isSynced = item.status === "synced";
+  const isSynced = item.status === "synced" || item.status === "shipped";
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-outline-variant bg-surface p-3">
@@ -141,6 +141,16 @@ export function ActionItemCard({
             {item.githubPrState === "draft" && (
               <StatusBadge tone="pending" className="ml-0.5">
                 draft
+              </StatusBadge>
+            )}
+            {item.githubPrState === "merged" && (
+              <StatusBadge tone="synced" className="ml-0.5">
+                merged
+              </StatusBadge>
+            )}
+            {item.githubPrState === "closed" && (
+              <StatusBadge tone="refactor" className="ml-0.5">
+                closed
               </StatusBadge>
             )}
             <ExternalLink className="size-3" />

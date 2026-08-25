@@ -221,6 +221,7 @@ export function Workspace({
     { label: "Suggested", value: items.filter((i) => i.status === "suggested").length, color: "var(--accent-amber)" },
     { label: "Approved", value: items.filter((i) => i.status === "approved").length, color: "var(--accent-blue)" },
     { label: "Synced", value: items.filter((i) => i.status === "synced").length, color: "var(--accent-green)" },
+    { label: "Shipped", value: items.filter((i) => i.status === "shipped").length, color: "var(--accent-green)" },
     { label: "Dismissed", value: items.filter((i) => i.status === "dismissed").length, color: "var(--accent-purple)" },
   ];
   const priorityBreakdown: BarDatum[] = (["high", "medium", "low"] as const).map((p) => ({

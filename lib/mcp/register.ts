@@ -30,7 +30,7 @@ export function registerGitPulseTools(server: McpServer) {
       inputSchema: z.object({
         projectId: z.string().optional().describe("Only items for this project id."),
         status: z
-          .enum(["suggested", "approved", "synced", "dismissed"])
+          .enum(["suggested", "approved", "synced", "shipped", "dismissed"])
           .optional()
           .describe("Only items in this status."),
         priority: z.enum(["high", "medium", "low"]).optional(),
