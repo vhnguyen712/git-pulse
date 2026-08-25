@@ -200,6 +200,58 @@ export interface CompareResult {
   aheadBy: number;
   commits: CompareCommit[];
   files: CompareFile[];
+  /**
+   * True when `commits` doesn't cover all of `aheadBy` — either GitHub's
+   * compare API truncated its own response (it caps commits at 250 and files
+   * at 300 regardless of how large the diff actually is), or the repo has
+   * more commits than MAX_COMPARE_COMMITS lets us page through.
+   */
+  truncated: boolean;
+}
+
+/**
+ * GitHub's compareCommits response caps the `commits` array at 250 entries
+ * regardless of ahead_by. Above that, page through /commits instead so a
+ * repo with a long gap between syncs (hundreds/thousands of commits) doesn't
+ * silently lose the older ones from analysis. This still caps at a hard
+ * ceiling so one huge gap can't turn into thousands of paginated API calls
+ * (downstream chunking in lib/context.ts bounds the resulting LLM calls).
+ */
+const MAX_COMPARE_COMMITS = 500;
+
+/** Pages backward from `head` via /commits, stopping at `stopAtSha` or `max` entries. Returned oldest-first to match compareCommits' ordering. */
+async function listCommitsBack(
+  owner: string,
+  repo: string,
+  head: string,
+  stopAtSha: string,
+  max: number,
+): Promise<{ commits: CompareCommit[]; truncated: boolean }> {
+  const octokit = await getOctokit();
+  const commits: CompareCommit[] = [];
+  let truncated = false;
+  outer: for await (const { data: page } of octokit.paginate.iterator(octokit.repos.listCommits, {
+    owner,
+    repo,
+    sha: head,
+    per_page: 100,
+  })) {
+    for (const c of page) {
+      if (c.sha === stopAtSha) break outer;
+      if (commits.length >= max) {
+        truncated = true;
+        break outer;
+      }
+      commits.push({
+        sha: c.sha,
+        message: c.commit.message,
+        authorName: c.commit.author?.name ?? null,
+        authorDate: c.commit.author?.date ?? null,
+        isMerge: c.parents.length > 1,
+      });
+    }
+  }
+  return { commits: commits.reverse(), truncated };
 }
 
 /** Changes between two refs. Prefer this over paging /commits — it returns files+patches in one call. */
@@ -222,15 +274,25 @@ export async function compare(
       }
       throw err;
     }
+
+    let commits: CompareCommit[] = data.commits.map((c) => ({
+      sha: c.sha,
+      message: c.commit.message,
+      authorName: c.commit.author?.name ?? null,
+      authorDate: c.commit.author?.date ?? null,
+      isMerge: c.parents.length > 1,
+    }));
+    let truncated = false;
+
+    if (data.ahead_by > commits.length) {
+      const paged = await listCommitsBack(owner, repo, head, base, MAX_COMPARE_COMMITS);
+      commits = paged.commits;
+      truncated = paged.truncated;
+    }
+
     return {
       aheadBy: data.ahead_by,
-      commits: data.commits.map((c) => ({
-        sha: c.sha,
-        message: c.commit.message,
-        authorName: c.commit.author?.name ?? null,
-        authorDate: c.commit.author?.date ?? null,
-        isMerge: c.parents.length > 1,
-      })),
+      commits,
       files: (data.files ?? []).map((f) => ({
         filename: f.filename,
         status: f.status,
@@ -238,6 +300,7 @@ export async function compare(
         deletions: f.deletions,
         patch: f.patch,
       })),
+      truncated,
     };
   });
 }
