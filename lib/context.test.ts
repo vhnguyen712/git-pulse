@@ -119,5 +119,20 @@ describe("buildContext", () => {
     if (ctx.mode === "map-reduce") {
       expect(ctx.chunks.length).toBeGreaterThan(1);
     }
+    expect(ctx.commitsCapped).toBe(false);
+  });
+
+  it("caps commits at MAX_COMMITS_ANALYZED and keeps the most recent ones", () => {
+    const commits = Array.from({ length: 320 }, (_, i) => commit({ sha: `sha${i}` }));
+    const ctx = buildContext({ commits, files: [], readme: null, openIssues: [] });
+    expect(ctx.mode).toBe("map-reduce");
+    expect(ctx.commitsCapped).toBe(true);
+    expect(ctx.droppedCommits).toBe(20);
+    if (ctx.mode === "map-reduce") {
+      // 300 kept commits should still be present, most-recent (highest index) ones.
+      const allText = ctx.chunks.join("\n");
+      expect(allText).toContain("sha319");
+      expect(allText).not.toContain("sha0\n");
+    }
   });
 });

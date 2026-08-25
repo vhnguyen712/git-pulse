@@ -14,6 +14,15 @@ const MAX_PATCH_LINES = 200;
 const COMMITS_PER_MAP_CHUNK = 20;
 /** Above this commit count, fall back to map-reduce instead of one big call. */
 const MAP_REDUCE_THRESHOLD = 40;
+/**
+ * Hard ceiling on commits actually sent to the LLM. Without this, a repo
+ * with a very long gap between syncs (thousands of commits, e.g. from
+ * lib/github.ts's compare() pagination fallback) would still turn into a map-
+ * reduce call per COMMITS_PER_MAP_CHUNK commits — hundreds of LLM calls for
+ * one sync. Keeps the oldest commits (context least relevant to "what
+ * changed recently") out of analysis and counts them as dropped.
+ */
+const MAX_COMMITS_ANALYZED = 300;
 
 const BOT_NAME_PATTERN = /\[bot\]$|-bot$|^dependabot|^renovate|^github-actions$/i;
 const GENERATED_PATH_PATTERN =
@@ -135,6 +144,8 @@ export interface SingleContext {
   /** One prompt-ready context string, within TOKEN_BUDGET. */
   text: string;
   droppedCommits: number;
+  /** True when droppedCommits includes commits cut by MAX_COMMITS_ANALYZED (not just filtered bots/merges). */
+  commitsCapped: boolean;
 }
 
 export interface MapReduceContext {
@@ -143,13 +154,25 @@ export interface MapReduceContext {
   chunks: string[];
   readmeAndIssues: string;
   droppedCommits: number;
+  /** True when droppedCommits includes commits cut by MAX_COMMITS_ANALYZED (not just filtered bots/merges). */
+  commitsCapped: boolean;
 }
 
 export type BuiltContext = SingleContext | MapReduceContext;
 
 /** Assembles the final LLM-ready context from raw GitHub data, applying the token budget. */
 export function buildContext(raw: RawSyncData): BuiltContext {
-  const { kept, droppedCount } = filterCommits(raw.commits);
+  const { kept: filtered, droppedCount: filteredOut } = filterCommits(raw.commits);
+  // Keep the most recent commits when there are more than we're willing to
+  // analyze — they're chronologically last in `filtered` (oldest-first order
+  // from the GitHub compare/list APIs).
+  const kept =
+    filtered.length > MAX_COMMITS_ANALYZED
+      ? filtered.slice(filtered.length - MAX_COMMITS_ANALYZED)
+      : filtered;
+  const cappedCount = filtered.length - kept.length;
+  const droppedCount = filteredOut + cappedCount;
+  const commitsCapped = cappedCount > 0;
   const readmeAndIssues = [
     buildReadmeExcerpt(raw.readme),
     buildOpenIssuesList(raw.openIssues),
@@ -174,6 +197,7 @@ export function buildContext(raw: RawSyncData): BuiltContext {
       chunks,
       readmeAndIssues: reduceContext,
       droppedCommits: droppedCount,
+      commitsCapped,
     };
   }
 
@@ -186,5 +210,5 @@ export function buildContext(raw: RawSyncData): BuiltContext {
     remainingBudget > 200 ? buildDiffAppendix(raw.files, remainingBudget) : "";
 
   const text = [tier1, diffAppendix, readmeAndIssues].filter(Boolean).join("\n\n");
-  return { mode: "single", text, droppedCommits: droppedCount };
+  return { mode: "single", text, droppedCommits: droppedCount, commitsCapped };
 }

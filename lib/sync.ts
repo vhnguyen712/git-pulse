@@ -31,6 +31,14 @@ export interface SyncResult {
   cached?: boolean;
   usage?: TokenUsage | null;
   /**
+   * True when the commit range since the last sync was too large to fetch or
+   * analyze in full (GitHub's compare API caps commits at 250; lib/github.ts
+   * pages past that up to a hard ceiling, and lib/context.ts caps how many
+   * of those go to the LLM). Analysis still ran, just over a suffix of the
+   * range rather than every commit.
+   */
+  commitsTruncated?: boolean;
+  /**
    * Set when GitHub data was fetched fine but the LLM endpoint stayed
    * unavailable/rate-limited through every retry. The sync cursor is
    * deliberately NOT advanced in this case, so the same commit range is
@@ -120,6 +128,9 @@ export async function syncProject(
 
   let commits: CompareCommit[];
   let files: CompareFile[];
+  // Set when the fetched commit range was too large to cover in full — see
+  // CompareResult.truncated and lib/context.ts's MAX_COMMITS_ANALYZED cap.
+  let commitsTruncated = false;
   // May be reset to FIRST_SYNC_BASE below if the stored base can't be diffed —
   // the analysis is then keyed/stored as a fresh first sync.
   let effectiveBase = baseSha;
@@ -131,6 +142,7 @@ export async function syncProject(
       const cmp = await compare(owner, repo, baseSha, headSha);
       commits = cmp.commits;
       files = cmp.files;
+      commitsTruncated = cmp.truncated;
     } catch (err) {
       if (!(err instanceof GitHubNoCommonHistoryError)) throw err;
       // The stored base sha no longer shares history with head (rewritten or
@@ -173,6 +185,7 @@ export async function syncProject(
         : null;
   } else {
     const context = buildContext({ commits, files, readme, openIssues });
+    commitsTruncated = commitsTruncated || context.commitsCapped;
     let result;
     try {
       result = await analyze(context);
@@ -254,6 +267,7 @@ export async function syncProject(
     actionItems: items,
     cached: Boolean(cached),
     usage,
+    commitsTruncated,
   };
 }
 
