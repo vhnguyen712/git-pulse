@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { GitHubConfigError, GitHubRateLimitError } from "@/lib/github";
-import { LlmConfigError, LlmOutputError } from "@/lib/llm";
+import { LlmConfigError, LlmOutputError, LlmUnavailableError } from "@/lib/llm";
 import { syncRequestSchema } from "@/lib/schema";
 import { syncProject } from "@/lib/sync";
 import { logger } from "@/lib/logging";
@@ -39,6 +39,12 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "llm_invalid_output", message: err.message },
         { status: 502 },
+      );
+    }
+    if (err instanceof LlmUnavailableError) {
+      return NextResponse.json(
+        { error: "llm_unavailable", message: err.message },
+        { status: 503 },
       );
     }
     logger.error("POST /api/sync failed", err);
