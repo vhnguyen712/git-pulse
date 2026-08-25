@@ -3,9 +3,11 @@ import {
   getSettingsForDisplay,
   upsertSettings,
   maskSecret,
+  parseAgentOverrides,
 } from "@/lib/settings";
 import { settingsUpdateSchema } from "@/lib/schema";
 import { logger } from "@/lib/logging";
+import type { AgentOverrides } from "@/lib/terminal/agents";
 
 export interface SettingsResponse {
   githubTokenSet: boolean;
@@ -25,6 +27,7 @@ export interface SettingsResponse {
   costPerMillionInputSource: "settings" | "env" | "none";
   costPerMillionOutput: string | null;
   costPerMillionOutputSource: "settings" | "env" | "none";
+  agentOverrides: AgentOverrides;
 }
 
 async function buildResponse(): Promise<SettingsResponse> {
@@ -47,6 +50,7 @@ async function buildResponse(): Promise<SettingsResponse> {
     costPerMillionInputSource: source.costPerMillionInput,
     costPerMillionOutput: row?.costPerMillionOutput ?? null,
     costPerMillionOutputSource: source.costPerMillionOutput,
+    agentOverrides: parseAgentOverrides(row?.agentOverrides),
   };
 }
 

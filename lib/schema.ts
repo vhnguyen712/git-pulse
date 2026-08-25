@@ -82,6 +82,10 @@ export const settingsUpdateSchema = z.object({
   cronSecret: z.string().optional(),
   costPerMillionInput: z.string().optional(),
   costPerMillionOutput: z.string().optional(),
+  /** Per-agent CLI command/args overrides, keyed by agent id (see lib/terminal/agents.ts). */
+  agentOverrides: z
+    .record(z.string(), z.object({ command: z.string().optional(), args: z.array(z.string()).optional() }))
+    .optional(),
 });
 export type SettingsUpdateRequest = z.infer<typeof settingsUpdateSchema>;
 

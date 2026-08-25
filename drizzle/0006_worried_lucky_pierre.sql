@@ -1,0 +1,1 @@
+ALTER TABLE `settings` ADD `agent_overrides` text;

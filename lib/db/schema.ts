@@ -114,6 +114,12 @@ export const settings = sqliteTable("settings", {
   /** Optional display-only pricing used to estimate cost from stored token counts; never sent anywhere. */
   costPerMillionInput: text("cost_per_million_input"),
   costPerMillionOutput: text("cost_per_million_output"),
+  /**
+   * Per-agent CLI command/args overrides, as JSON: `{ [agentId]: { command?, args? } }`.
+   * Lets an install point an agent at a non-PATH binary (see lib/terminal/agents.ts
+   * for the registry of default commands this overrides).
+   */
+  agentOverrides: text("agent_overrides"),
   updatedAt: integer("updated_at"),
 });
 

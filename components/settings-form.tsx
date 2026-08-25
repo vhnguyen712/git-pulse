@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import type { SettingsResponse } from "@/app/api/settings/route";
+import { AGENT_LIST } from "@/lib/terminal/agents";
 import { cn } from "@/lib/utils";
 
 type Source = "settings" | "env" | "none";
@@ -103,6 +104,8 @@ export function SettingsForm() {
   const [cronSecret, setCronSecret] = useState("");
   const [costInput, setCostInput] = useState("");
   const [costOutput, setCostOutput] = useState("");
+  /** Per-agent CLI command override, keyed by agent id — blank means "use the default". */
+  const [agentCommands, setAgentCommands] = useState<Record<string, string>>({});
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -131,6 +134,11 @@ export function SettingsForm() {
       setLlmModel(body.llmModel ?? "");
       setCostInput(body.costPerMillionInput ?? "");
       setCostOutput(body.costPerMillionOutput ?? "");
+      setAgentCommands(
+        Object.fromEntries(
+          AGENT_LIST.map((a) => [a.id, body.agentOverrides[a.id]?.command ?? ""]),
+        ),
+      );
       setLoading(false);
     }
     loadSettings();
@@ -139,7 +147,7 @@ export function SettingsForm() {
     };
   }, []);
 
-  async function save(payload: Record<string, string>) {
+  async function save(payload: Record<string, unknown>) {
     setSaving(true);
     setSaveError(null);
     setSaved(false);
@@ -160,6 +168,11 @@ export function SettingsForm() {
       setLlmModel(body.llmModel ?? "");
       setCostInput(body.costPerMillionInput ?? "");
       setCostOutput(body.costPerMillionOutput ?? "");
+      setAgentCommands(
+        Object.fromEntries(
+          AGENT_LIST.map((a) => [a.id, body.agentOverrides[a.id]?.command ?? ""]),
+        ),
+      );
       setGithubToken("");
       setLlmApiKey("");
       setCronSecret("");
@@ -173,11 +186,14 @@ export function SettingsForm() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const payload: Record<string, string> = {
+    const payload: Record<string, unknown> = {
       llmBaseUrl: llmBaseUrl.trim(),
       llmModel: llmModel.trim(),
       costPerMillionInput: costInput.trim(),
       costPerMillionOutput: costOutput.trim(),
+      agentOverrides: Object.fromEntries(
+        AGENT_LIST.map((a) => [a.id, { command: agentCommands[a.id]?.trim() || undefined }]),
+      ),
     };
     if (githubToken.trim() !== "") payload.githubToken = githubToken.trim();
     if (llmApiKey.trim() !== "") payload.llmApiKey = llmApiKey.trim();
@@ -285,6 +301,11 @@ export function SettingsForm() {
         setLlmModel(settingsBody.llmModel ?? "");
         setCostInput(settingsBody.costPerMillionInput ?? "");
         setCostOutput(settingsBody.costPerMillionOutput ?? "");
+        setAgentCommands(
+          Object.fromEntries(
+            AGENT_LIST.map((a) => [a.id, settingsBody.agentOverrides[a.id]?.command ?? ""]),
+          ),
+        );
         setGithubToken("");
         setLlmApiKey("");
         setCronSecret("");
@@ -411,6 +432,33 @@ export function SettingsForm() {
               />
             </Field>
           </div>
+        </div>
+
+        <div className="flex flex-col gap-4 rounded-lg border border-outline-variant bg-surface p-4">
+          <h2 className="font-heading text-sm font-semibold text-on-surface">Agent CLIs</h2>
+          <p className="text-[11px] text-on-surface-variant">
+            Each agent runs its default command, resolved on PATH. Set a path here only if it
+            isn&apos;t on PATH or you want to point it at a different binary.
+          </p>
+
+          {AGENT_LIST.map((agent) => (
+            <Field
+              key={agent.id}
+              label={agent.label}
+              source={agentCommands[agent.id]?.trim() ? "settings" : "none"}
+            >
+              <input
+                type="text"
+                className={inputClass}
+                value={agentCommands[agent.id] ?? ""}
+                onChange={(e) =>
+                  setAgentCommands((prev) => ({ ...prev, [agent.id]: e.target.value }))
+                }
+                placeholder={agent.command}
+                autoComplete="off"
+              />
+            </Field>
+          ))}
         </div>
 
         <div className="flex flex-col gap-4 rounded-lg border border-outline-variant bg-surface p-4">

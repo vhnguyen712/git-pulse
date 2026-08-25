@@ -78,8 +78,8 @@ export function Workspace({
   const [openingPrId, setOpeningPrId] = useState<string | null>(null);
 
   const { openTerminal } = useTerminal();
-  function handleOpenTerminal(prompt: string, title: string) {
-    if (project) openTerminal(project, prompt, title);
+  function handleOpenTerminal(prompt: string, title: string, agentId?: string) {
+    if (project) openTerminal(project, prompt, title, agentId);
   }
 
   const [activeTab, setActiveTab] = useState<TabKey>("git");

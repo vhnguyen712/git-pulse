@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { Loader2, SquareTerminal, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTerminal, type TerminalSession as Session } from "@/components/terminal-context";
+import { getAgent } from "@/lib/terminal/agents";
 import type { Project } from "@/lib/db/schema";
 
 type Status = "no-path" | "connecting" | "connected" | "reconnecting" | "closed" | "error";
@@ -106,7 +107,7 @@ export function TerminalDock() {
             >
               <button
                 onClick={() => activateSession(s.id)}
-                title={`${s.project.owner}/${s.project.repoName} — ${s.title}`}
+                title={`${s.project.owner}/${s.project.repoName} — ${s.title} (${getAgent(s.agentId).label})`}
                 className="flex min-w-0 items-center gap-1.5"
               >
                 {status === "connecting" || status === "reconnecting" ? (
@@ -229,6 +230,7 @@ function TerminalPane({
       const params = new URLSearchParams({
         projectId: project.id,
         sessionId: sessionId!,
+        agent: session.agentId,
         prompt,
         cols: String(term.cols),
         rows: String(term.rows),
