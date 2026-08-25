@@ -40,25 +40,31 @@ export function TerminalProvider({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [height, setHeightState] = useState(DEFAULT_HEIGHT);
 
-  const openTerminal = useCallback((project: Project, prompt: string, title: string) => {
-    setSessions((prev) => {
+  const openTerminal = useCallback(
+    (project: Project, prompt: string, title: string) => {
       // Re-opening the same task just refocuses its existing tab rather than
       // spawning a duplicate `claude` session for it.
-      const existing = prev.find((s) => s.project.id === project.id && s.prompt === prompt);
+      const existing = sessions.find((s) => s.project.id === project.id && s.prompt === prompt);
       if (existing) {
         setActiveId(existing.id);
-        return prev;
+        return;
       }
+      // Generated outside the setSessions updater (and setActiveId called
+      // here rather than inside it) so the updater stays pure — React's
+      // Strict Mode double-invokes impure updaters in dev, which previously
+      // produced two different session ids and left activeId pointing at
+      // the one that didn't make it into state.
       const session: TerminalSession = {
         id: crypto.randomUUID(),
         project,
         prompt,
         title: title.trim() || `${project.owner}/${project.repoName}`,
       };
+      setSessions((prev) => [...prev, session]);
       setActiveId(session.id);
-      return [...prev, session];
-    });
-  }, []);
+    },
+    [sessions],
+  );
 
   const activateSession = useCallback((id: string) => setActiveId(id), []);
 
