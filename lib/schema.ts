@@ -47,6 +47,12 @@ export const createIssueRequestSchema = z.object({
 });
 export type CreateIssueRequest = z.infer<typeof createIssueRequestSchema>;
 
+/** Body for POST /api/pulls — opens a draft PR for the item's gitpulse/<id> branch. */
+export const openPullRequestRequestSchema = z.object({
+  actionItemId: z.string().min(1),
+});
+export type OpenPullRequestRequest = z.infer<typeof openPullRequestRequestSchema>;
+
 /**
  * Body for PATCH /api/projects. Sets the absolute path to a project's local
  * clone, used to open an embedded terminal in that directory. Accepts a

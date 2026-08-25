@@ -1,10 +1,19 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
-import { listRecentCommits, getRepo, type CompareCommit } from "@/lib/github";
+import {
+  listRecentCommits,
+  getRepo,
+  GitHubConfigError,
+  GitHubRateLimitError,
+  type CompareCommit,
+  type PullRequestSummary,
+} from "@/lib/github";
+import { reconcilePullRequests, getPrCandidates, type PrCandidate } from "@/lib/pulls";
 import type { Analysis } from "@/lib/schema";
 import type { ActionItem, Project } from "@/lib/db/schema";
 import { getProjectHistory, type SyncHistoryEntry } from "@/lib/history";
+import { logger } from "@/lib/logging";
 
 const ACTIVITY_COMMIT_COUNT = 30;
 
@@ -16,6 +25,10 @@ export interface WorkspaceData {
   history: SyncHistoryEntry[];
   /** Branch the "Sync now" button will target: the stored choice, or the repo default. */
   syncBranch: string;
+  /** Repo's open PRs, reconciled onto their action items' githubPr* columns. */
+  pulls: PullRequestSummary[];
+  /** gitpulse/<id> branches pushed but not yet turned into a PR. */
+  prCandidates: PrCandidate[];
 }
 
 /**
@@ -38,6 +51,8 @@ export async function getWorkspaceData(
   let latestSummary: Analysis | null = null;
   let items: ActionItem[] = [];
   let history: SyncHistoryEntry[] = [];
+  let pulls: PullRequestSummary[] = [];
+  let prCandidates: PrCandidate[] = [];
   // Pre-select the branch the picker should show: the user's stored override,
   // or GitHub's live default branch. Resolving the default live (rather than
   // trusting the possibly-stale projects.default_branch column) keeps this in
@@ -45,6 +60,19 @@ export async function getWorkspaceData(
   const syncBranch = project?.syncBranch ?? (await getRepo(owner, repo)).defaultBranch;
 
   if (project) {
+    // Reconcile open PRs onto their action items' githubPr* columns *before*
+    // loading the items below, so the rows this render sees are already
+    // up to date — no separate client refetch needed for the card link to
+    // appear. Config/rate-limit errors propagate to the caller (page.tsx
+    // already renders a notice for them from getRepo above); anything else
+    // is non-fatal — the workspace still renders, just without PR data.
+    try {
+      pulls = await reconcilePullRequests(project);
+    } catch (err) {
+      if (err instanceof GitHubConfigError || err instanceof GitHubRateLimitError) throw err;
+      logger.error("reconcilePullRequests failed during workspace load", err);
+    }
+
     const summaryRow = await db.query.aiSummaries.findFirst({
       where: (s, { eq }) => eq(s.projectId, project.id),
       orderBy: (s, { desc }) => desc(s.createdAt),
@@ -57,6 +85,13 @@ export async function getWorkspaceData(
       });
     }
 
+    try {
+      prCandidates = await getPrCandidates(project, pulls, items);
+    } catch (err) {
+      if (err instanceof GitHubConfigError || err instanceof GitHubRateLimitError) throw err;
+      logger.error("getPrCandidates failed during workspace load", err);
+    }
+
     history = await getProjectHistory(project.id);
 
     // Opening the workspace clears its "new items" badge on the Overview —
@@ -67,5 +102,14 @@ export async function getWorkspaceData(
       .where(eq(projects.id, project.id));
   }
 
-  return { project: project ?? null, commits, latestSummary, actionItems: items, history, syncBranch };
+  return {
+    project: project ?? null,
+    commits,
+    latestSummary,
+    actionItems: items,
+    history,
+    syncBranch,
+    pulls,
+    prCandidates,
+  };
 }

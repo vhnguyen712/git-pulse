@@ -79,6 +79,14 @@ export const actionItems = sqliteTable("action_items", {
     .default("suggested"),
   githubIssueNumber: integer("github_issue_number"),
   githubIssueUrl: text("github_issue_url"),
+  /**
+   * PR opened for this item's `gitpulse/<id>` branch, if any — set by
+   * lib/pulls.ts's reconcile pass or openDraftPullRequest, never cleared, so
+   * the card's "View PR" link survives the PR being merged or closed.
+   */
+  githubPrNumber: integer("github_pr_number"),
+  githubPrUrl: text("github_pr_url"),
+  githubPrState: text("github_pr_state", { enum: ["draft", "open"] }),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`),

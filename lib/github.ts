@@ -316,3 +316,76 @@ export async function createIssue(
     return { number: data.number, htmlUrl: data.html_url };
   });
 }
+
+export interface PullRequestSummary {
+  number: number;
+  title: string;
+  htmlUrl: string;
+  /** GitHub reports a draft PR as state:"open" + draft:true — this flattens that. */
+  isDraft: boolean;
+  author: string | null;
+  headRef: string;
+  baseRef: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** Open pull requests for a repo, most recently updated first. Mirrors getOpenIssues(). */
+export async function listOpenPullRequests(
+  owner: string,
+  repo: string,
+): Promise<PullRequestSummary[]> {
+  const octokit = await getOctokit();
+  return withRateLimitHandling(async () => {
+    const data = await octokit.paginate(octokit.pulls.list, {
+      owner,
+      repo,
+      state: "open",
+      sort: "updated",
+      direction: "desc",
+      per_page: 50,
+    });
+    return data.map((pr) => ({
+      number: pr.number,
+      title: pr.title,
+      htmlUrl: pr.html_url,
+      isDraft: pr.draft ?? false,
+      author: pr.user?.login ?? null,
+      headRef: pr.head.ref,
+      baseRef: pr.base.ref,
+      createdAt: pr.created_at ?? null,
+      updatedAt: pr.updated_at ?? null,
+    }));
+  });
+}
+
+/**
+ * Opens a draft PR for a branch already pushed to the repo. On a 422 —
+ * GitHub's response when `head` doesn't exist yet or has no commits ahead of
+ * `base` — the original octokit error (status 422) propagates through
+ * withRateLimitHandling unchanged; callers (lib/pulls.ts) check `status`
+ * to translate that into a "branch not ready" result rather than a generic
+ * failure.
+ */
+export async function createDraftPullRequest(
+  owner: string,
+  repo: string,
+  head: string,
+  base: string,
+  title: string,
+  body: string,
+): Promise<{ number: number; htmlUrl: string; isDraft: boolean }> {
+  const octokit = await getOctokit();
+  return withRateLimitHandling(async () => {
+    const { data } = await octokit.pulls.create({
+      owner,
+      repo,
+      head,
+      base,
+      title,
+      body,
+      draft: true,
+    });
+    return { number: data.number, htmlUrl: data.html_url, isDraft: data.draft ?? true };
+  });
+}
