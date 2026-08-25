@@ -1,6 +1,14 @@
 "use client";
 
-import { CheckCircle2, ExternalLink, GitPullRequest, SquareTerminal, Upload } from "lucide-react";
+import { useState } from "react";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ExternalLink,
+  GitPullRequest,
+  SquareTerminal,
+  Upload,
+} from "lucide-react";
 import type { ActionItem } from "@/lib/db/schema";
 import {
   StatusBadge,
@@ -8,6 +16,7 @@ import {
   toneFromPriority,
 } from "@/components/status-badge";
 import { branchNameForItem } from "@/lib/pull-branch";
+import { AGENT_LIST, DEFAULT_AGENT_ID, getAgent } from "@/lib/terminal/agents";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,7 +26,7 @@ import { cn } from "@/lib/utils";
  * opens the draft PR from that branch once it's pushed, via its own GitHub
  * token, so no `gh` CLI/auth is required in the target repo. Used to
  * pre-fill the embedded terminal panel; the user still has to press Enter to
- * actually start Claude (see lib/terminal/server.ts) — this only seeds text.
+ * actually start the agent CLI (see lib/terminal/server.ts) — this only seeds text.
  */
 function buildPrompt(item: ActionItem, baseBranch: string): string {
   const task: string[] =
@@ -62,11 +71,12 @@ export function ActionItemCard({
   /** Repo's default branch — the base the seeded prompt tells Claude's PR will target. */
   baseBranch: string;
   onPush: () => void;
-  /** Opens the embedded terminal panel with this item's prompt pre-filled. */
-  onOpenTerminal: (prompt: string, title: string) => void;
+  /** Opens the embedded terminal panel with this item's prompt pre-filled, running the given agent CLI. */
+  onOpenTerminal: (prompt: string, title: string, agentId: string) => void;
 }) {
   const canPush = item.status === "suggested" || item.status === "approved";
   const isSynced = item.status === "synced" || item.status === "shipped";
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-outline-variant bg-surface p-3">
@@ -120,14 +130,43 @@ export function ActionItemCard({
           </button>
         )}
 
-        <button
-          onClick={() => onOpenTerminal(buildPrompt(item, baseBranch), item.title)}
-          title="Open a claude session for this task, embedded right here"
-          className="inline-flex items-center gap-1 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:bg-white/5 hover:text-on-surface"
-        >
-          <SquareTerminal className="size-3" />
-          Open in Claude Code
-        </button>
+        <div className="relative inline-flex">
+          <button
+            onClick={() => onOpenTerminal(buildPrompt(item, baseBranch), item.title, DEFAULT_AGENT_ID)}
+            title={`Open a ${getAgent(DEFAULT_AGENT_ID).label} session for this task, embedded right here`}
+            className="inline-flex items-center gap-1 rounded-l-md rounded-r-none border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:bg-white/5 hover:text-on-surface"
+          >
+            <SquareTerminal className="size-3" />
+            Open in {getAgent(DEFAULT_AGENT_ID).label}
+          </button>
+          <button
+            onClick={() => setPickerOpen((v) => !v)}
+            title="Choose a different agent"
+            className="inline-flex items-center rounded-r-md rounded-l-none border border-l-0 border-outline-variant px-1 py-1 text-on-surface-variant hover:bg-white/5 hover:text-on-surface"
+          >
+            <ChevronDown className="size-3" />
+          </button>
+          {pickerOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setPickerOpen(false)} />
+              <div className="absolute bottom-full left-0 z-20 mb-1 w-40 overflow-hidden rounded-md border border-outline-variant bg-surface-container-lowest shadow-lg">
+                {AGENT_LIST.map((agent) => (
+                  <button
+                    key={agent.id}
+                    onClick={() => {
+                      setPickerOpen(false);
+                      onOpenTerminal(buildPrompt(item, baseBranch), item.title, agent.id);
+                    }}
+                    className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left text-xs text-on-surface hover:bg-white/5"
+                  >
+                    <SquareTerminal className="size-3 shrink-0" />
+                    Open in {agent.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
 
         {item.githubPrUrl && (
           <a
