@@ -78,3 +78,14 @@ export const settingsUpdateSchema = z.object({
   costPerMillionOutput: z.string().optional(),
 });
 export type SettingsUpdateRequest = z.infer<typeof settingsUpdateSchema>;
+
+/** Body for POST /api/settings/clear-data — the Settings page's Danger Zone. */
+export const clearDataRequestSchema = z
+  .object({
+    clearSettings: z.boolean().default(false),
+    clearSyncData: z.boolean().default(false),
+  })
+  .refine((data) => data.clearSettings || data.clearSyncData, {
+    message: "Select at least one category to clear.",
+  });
+export type ClearDataRequest = z.infer<typeof clearDataRequestSchema>;

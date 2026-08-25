@@ -68,7 +68,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen w-full overflow-hidden bg-surface">
       {/* Desktop / tablet sidebar — icon rail 768–1280px, full sidebar >1280px */}
       <aside className="hidden shrink-0 overflow-y-auto border-r border-outline-variant bg-surface-container-low md:flex md:w-14 md:flex-col md:gap-4 md:p-2 xl:w-56 xl:p-3">
-        <Brand collapsed />
+        <div className="xl:hidden">
+          <Brand collapsed />
+        </div>
         <div className="hidden xl:block">
           <Brand />
         </div>
