@@ -73,7 +73,7 @@ export const actionItems = sqliteTable("action_items", {
     "medium",
   ),
   status: text("status", {
-    enum: ["suggested", "approved", "synced", "dismissed"],
+    enum: ["suggested", "approved", "synced", "shipped", "dismissed"],
   })
     .notNull()
     .default("suggested"),
@@ -82,11 +82,14 @@ export const actionItems = sqliteTable("action_items", {
   /**
    * PR opened for this item's `gitpulse/<id>` branch, if any — set by
    * lib/pulls.ts's reconcile pass or openDraftPullRequest, never cleared, so
-   * the card's "View PR" link survives the PR being merged or closed.
+   * the card's "View PR" link survives the PR being merged or closed. State
+   * is kept current even after the PR leaves GitHub's open list: the reconcile
+   * pass follow-up checks any item still recorded as draft/open and flips it
+   * to merged/closed once GitHub reports it that way (see lib/pulls.ts).
    */
   githubPrNumber: integer("github_pr_number"),
   githubPrUrl: text("github_pr_url"),
-  githubPrState: text("github_pr_state", { enum: ["draft", "open"] }),
+  githubPrState: text("github_pr_state", { enum: ["draft", "open", "merged", "closed"] }),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`),

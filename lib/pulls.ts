@@ -5,6 +5,7 @@ import {
   listOpenPullRequests,
   listBranches,
   createDraftPullRequest,
+  getPullRequest,
   type PullRequestSummary,
 } from "@/lib/github";
 import { branchNameForItem, actionItemIdFromBranch } from "@/lib/pull-branch";
@@ -27,6 +28,7 @@ export interface PrCandidate {
  */
 export async function reconcilePullRequests(project: Project): Promise<PullRequestSummary[]> {
   const pulls = await listOpenPullRequests(project.owner, project.repoName);
+  const openPrNumbers = new Set(pulls.map((pr) => pr.number));
 
   for (const pr of pulls) {
     const actionItemId = actionItemIdFromBranch(pr.headRef);
@@ -41,7 +43,47 @@ export async function reconcilePullRequests(project: Project): Promise<PullReque
       .where(eq(actionItems.id, actionItemId));
   }
 
+  await reconcileFinishedPullRequests(project, openPrNumbers);
+
   return pulls;
+}
+
+/**
+ * Follow-up for PRs that fell out of the open list — the only way a PR
+ * leaves listOpenPullRequests() is by merging or closing, but that state
+ * change was previously never written back (see historical bug: cards kept
+ * showing "draft" forever after merge). Finds items still recorded as
+ * draft/open whose PR isn't in the current open set, looks each one up
+ * individually, and writes the real state — flipping the item to "shipped"
+ * when its PR merged.
+ */
+async function reconcileFinishedPullRequests(
+  project: Project,
+  openPrNumbers: Set<number>,
+): Promise<void> {
+  const staleItems = await db.query.actionItems.findMany({
+    where: (a, { and, eq, isNotNull, inArray }) =>
+      and(
+        eq(a.projectId, project.id),
+        isNotNull(a.githubPrNumber),
+        inArray(a.githubPrState, ["draft", "open"]),
+      ),
+  });
+
+  for (const item of staleItems) {
+    if (!item.githubPrNumber || openPrNumbers.has(item.githubPrNumber)) continue;
+
+    const pr = await getPullRequest(project.owner, project.repoName, item.githubPrNumber);
+    if (pr.state === "open") continue; // still open, just missed this page — leave as-is
+
+    await db
+      .update(actionItems)
+      .set({
+        githubPrState: pr.merged ? "merged" : "closed",
+        status: pr.merged ? "shipped" : item.status,
+      })
+      .where(eq(actionItems.id, item.id));
+  }
 }
 
 /**
