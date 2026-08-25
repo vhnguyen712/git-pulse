@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { Project } from "@/lib/db/schema";
+import { DEFAULT_AGENT_ID } from "@/lib/terminal/agents";
 
 export interface TerminalSession {
   /** Stable client-generated id — also used as the pty sessionId on the server. */
@@ -10,13 +11,15 @@ export interface TerminalSession {
   prompt: string;
   /** Short label for the tab (e.g. the action item's title). */
   title: string;
+  /** Which agent CLI this session runs (see lib/terminal/agents.ts). */
+  agentId: string;
 }
 
 interface TerminalContextValue {
   sessions: TerminalSession[];
   activeId: string | null;
   height: number;
-  openTerminal: (project: Project, prompt: string, title: string) => void;
+  openTerminal: (project: Project, prompt: string, title: string, agentId?: string) => void;
   activateSession: (id: string) => void;
   closeSession: (id: string) => void;
   updateProject: (project: Project) => void;
@@ -40,25 +43,35 @@ export function TerminalProvider({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [height, setHeightState] = useState(DEFAULT_HEIGHT);
 
-  const openTerminal = useCallback((project: Project, prompt: string, title: string) => {
-    setSessions((prev) => {
-      // Re-opening the same task just refocuses its existing tab rather than
-      // spawning a duplicate `claude` session for it.
-      const existing = prev.find((s) => s.project.id === project.id && s.prompt === prompt);
+  const openTerminal = useCallback(
+    (project: Project, prompt: string, title: string, agentId: string = DEFAULT_AGENT_ID) => {
+      // Re-opening the same task with the same agent just refocuses its
+      // existing tab rather than spawning a duplicate session for it —
+      // opening it with a *different* agent gets its own tab.
+      const existing = sessions.find(
+        (s) => s.project.id === project.id && s.prompt === prompt && s.agentId === agentId,
+      );
       if (existing) {
         setActiveId(existing.id);
-        return prev;
+        return;
       }
+      // Generated outside the setSessions updater (and setActiveId called
+      // here rather than inside it) so the updater stays pure — React's
+      // Strict Mode double-invokes impure updaters in dev, which previously
+      // produced two different session ids and left activeId pointing at
+      // the one that didn't make it into state.
       const session: TerminalSession = {
         id: crypto.randomUUID(),
         project,
         prompt,
         title: title.trim() || `${project.owner}/${project.repoName}`,
+        agentId,
       };
+      setSessions((prev) => [...prev, session]);
       setActiveId(session.id);
-      return [...prev, session];
-    });
-  }, []);
+    },
+    [sessions],
+  );
 
   const activateSession = useCallback((id: string) => setActiveId(id), []);
 

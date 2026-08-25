@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import OpenAI, { APIConnectionError, APIError, RateLimitError } from "openai";
 import { analysisSchema, type Analysis } from "./schema";
 import type { BuiltContext } from "./context";
 import { logger } from "./logging";
@@ -13,6 +13,21 @@ import { resolveSettings } from "./settings";
 
 export class LlmConfigError extends Error {}
 export class LlmOutputError extends Error {}
+
+/**
+ * Thrown when the LLM endpoint is unreachable, overloaded, or rate-limited
+ * and every retry attempt (see `withRetry` below) has been exhausted.
+ * Distinct from LlmConfigError (bad/missing settings) and LlmOutputError
+ * (endpoint responded, but the content was malformed) so callers can degrade
+ * gracefully — e.g. keep the synced commit data and skip the analysis —
+ * instead of treating it as a hard failure.
+ */
+export class LlmUnavailableError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "LlmUnavailableError";
+  }
+}
 
 export interface TokenUsage {
   promptTokens: number;
@@ -39,6 +54,76 @@ function sumUsage(usages: (TokenUsage | null)[]): TokenUsage | null {
   );
 }
 
+// The OpenAI SDK already retries transient failures (429/5xx/connection
+// errors) internally, but its default of 2 attempts is thin for a
+// single-user app where a sync can just as easily be re-run a minute later.
+// Bumped here, and paired with `withRetry` below as a second layer: once the
+// SDK's own retries are exhausted, we back off and try the whole call again
+// a few more times before giving up and degrading gracefully.
+const SDK_MAX_RETRIES = 3;
+const APP_MAX_ATTEMPTS = 3;
+const BASE_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 15_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** True for errors worth retrying: rate limits, server-side/5xx errors, and
+ * connection failures. False for auth/config/bad-request style errors that
+ * won't succeed on retry. */
+function isRetryableLlmError(err: unknown): boolean {
+  if (err instanceof RateLimitError) return true;
+  if (err instanceof APIConnectionError) return true;
+  if (err instanceof APIError) return typeof err.status === "number" && err.status >= 500;
+  return false;
+}
+
+/** Honors a numeric `Retry-After` header (seconds) when the endpoint sends
+ * one, otherwise falls back to exponential backoff with jitter. */
+function retryDelayMs(err: unknown, attempt: number): number {
+  if (err instanceof APIError) {
+    const retryAfter = err.headers?.get("retry-after");
+    const seconds = retryAfter ? Number(retryAfter) : NaN;
+    if (Number.isFinite(seconds) && seconds > 0) return Math.min(seconds * 1000, MAX_BACKOFF_MS);
+  }
+  const exp = Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);
+  return exp / 2 + Math.random() * (exp / 2);
+}
+
+/**
+ * Retries `fn` with exponential backoff on transient LLM failures. Runs on
+ * top of the OpenAI SDK's own internal retries — this catches the case where
+ * an endpoint stays down/rate-limited longer than the SDK's retry window.
+ * Throws LlmUnavailableError once attempts are exhausted, so callers can
+ * distinguish "endpoint is down" from a config or output-validation problem.
+ */
+async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= APP_MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableLlmError(err) || attempt === APP_MAX_ATTEMPTS) break;
+      const delay = retryDelayMs(err, attempt);
+      logger.warn(
+        `${label} failed (attempt ${attempt}/${APP_MAX_ATTEMPTS}), retrying in ${Math.round(delay)}ms`,
+        err,
+      );
+      await sleep(delay);
+    }
+  }
+  if (isRetryableLlmError(lastErr)) {
+    const detail = lastErr instanceof Error ? lastErr.message : String(lastErr);
+    throw new LlmUnavailableError(
+      `LLM endpoint unavailable after ${APP_MAX_ATTEMPTS} attempts: ${detail}`,
+      { cause: lastErr },
+    );
+  }
+  throw lastErr;
+}
+
 // Cached by (baseURL, apiKey) so a change made in Settings takes effect on
 // the next call, with no explicit cache-bust wiring needed.
 let cachedClient: { key: string; client: OpenAI } | null = null;
@@ -60,7 +145,11 @@ async function getClientAndModel(): Promise<{ client: OpenAI; model: string }> {
   if (cachedClient && cachedClient.key === cacheKey) {
     return { client: cachedClient.client, model: llmModel };
   }
-  const client = new OpenAI({ apiKey: llmApiKey, baseURL: llmBaseUrl ?? undefined });
+  const client = new OpenAI({
+    apiKey: llmApiKey,
+    baseURL: llmBaseUrl ?? undefined,
+    maxRetries: SDK_MAX_RETRIES,
+  });
   cachedClient = { key: cacheKey, client };
   return { client, model: llmModel };
 }
@@ -135,12 +224,14 @@ async function chatJson(userContent: string, retryHint?: string): Promise<ChatRe
     messages.push({ role: "user", content: retryHint });
   }
 
-  const completion = await client.chat.completions.create({
-    model,
-    messages,
-    response_format: { type: "json_object" },
-    temperature: 0.3,
-  });
+  const completion = await withRetry("chatJson", () =>
+    client.chat.completions.create({
+      model,
+      messages,
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+    }),
+  );
 
   return {
     content: completion.choices[0]?.message?.content ?? "",
@@ -150,14 +241,16 @@ async function chatJson(userContent: string, retryHint?: string): Promise<ChatRe
 
 async function chatText(systemPrompt: string, userContent: string): Promise<ChatResult> {
   const { client, model } = await getClientAndModel();
-  const completion = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userContent },
-    ],
-    temperature: 0.3,
-  });
+  const completion = await withRetry("chatText", () =>
+    client.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      temperature: 0.3,
+    }),
+  );
   return {
     content: completion.choices[0]?.message?.content ?? "",
     usage: usageFromCompletion(completion),

@@ -14,7 +14,7 @@ import {
   type CompareFile,
 } from "@/lib/github";
 import { buildContext } from "@/lib/context";
-import { analyze } from "@/lib/llm";
+import { analyze, LlmUnavailableError } from "@/lib/llm";
 import type { Analysis } from "@/lib/schema";
 import type { TokenUsage } from "@/lib/llm";
 
@@ -38,6 +38,14 @@ export interface SyncResult {
    * range rather than every commit.
    */
   commitsTruncated?: boolean;
+  /**
+   * Set when GitHub data was fetched fine but the LLM endpoint stayed
+   * unavailable/rate-limited through every retry. The sync cursor is
+   * deliberately NOT advanced in this case, so the same commit range is
+   * re-analyzed on the next sync instead of being silently skipped.
+   */
+  analysisUnavailable?: boolean;
+  analysisError?: string;
 }
 
 /**
@@ -178,7 +186,23 @@ export async function syncProject(
   } else {
     const context = buildContext({ commits, files, readme, openIssues });
     commitsTruncated = commitsTruncated || context.commitsCapped;
-    const result = await analyze(context);
+    let result;
+    try {
+      result = await analyze(context);
+    } catch (err) {
+      if (!(err instanceof LlmUnavailableError)) throw err;
+      // Graceful degradation: GitHub data is fetched and valid, but the LLM
+      // endpoint is down/rate-limited. Surface the commits without an
+      // analysis instead of failing the whole sync, and leave the cursor
+      // where it was so this same range gets analyzed on the next attempt.
+      return {
+        upToDate: false,
+        project,
+        commits,
+        analysisUnavailable: true,
+        analysisError: err.message,
+      };
+    }
     analysis = result.analysis;
     usage = result.usage;
 

@@ -73,12 +73,23 @@ export const actionItems = sqliteTable("action_items", {
     "medium",
   ),
   status: text("status", {
-    enum: ["suggested", "approved", "synced", "dismissed"],
+    enum: ["suggested", "approved", "synced", "shipped", "dismissed"],
   })
     .notNull()
     .default("suggested"),
   githubIssueNumber: integer("github_issue_number"),
   githubIssueUrl: text("github_issue_url"),
+  /**
+   * PR opened for this item's `gitpulse/<id>` branch, if any — set by
+   * lib/pulls.ts's reconcile pass or openDraftPullRequest, never cleared, so
+   * the card's "View PR" link survives the PR being merged or closed. State
+   * is kept current even after the PR leaves GitHub's open list: the reconcile
+   * pass follow-up checks any item still recorded as draft/open and flips it
+   * to merged/closed once GitHub reports it that way (see lib/pulls.ts).
+   */
+  githubPrNumber: integer("github_pr_number"),
+  githubPrUrl: text("github_pr_url"),
+  githubPrState: text("github_pr_state", { enum: ["draft", "open", "merged", "closed"] }),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`),
@@ -103,6 +114,12 @@ export const settings = sqliteTable("settings", {
   /** Optional display-only pricing used to estimate cost from stored token counts; never sent anywhere. */
   costPerMillionInput: text("cost_per_million_input"),
   costPerMillionOutput: text("cost_per_million_output"),
+  /**
+   * Per-agent CLI command/args overrides, as JSON: `{ [agentId]: { command?, args? } }`.
+   * Lets an install point an agent at a non-PATH binary (see lib/terminal/agents.ts
+   * for the registry of default commands this overrides).
+   */
+  agentOverrides: text("agent_overrides"),
   updatedAt: integer("updated_at"),
 });
 

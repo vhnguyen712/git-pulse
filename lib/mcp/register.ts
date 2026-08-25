@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import { db } from "@/lib/db";
 import { actionItems } from "@/lib/db/schema";
 import { publishActionItem } from "@/lib/issues";
+import { openDraftPullRequest } from "@/lib/pulls";
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -29,7 +30,7 @@ export function registerGitPulseTools(server: McpServer) {
       inputSchema: z.object({
         projectId: z.string().optional().describe("Only items for this project id."),
         status: z
-          .enum(["suggested", "approved", "synced", "dismissed"])
+          .enum(["suggested", "approved", "synced", "shipped", "dismissed"])
           .optional()
           .describe("Only items in this status."),
         priority: z.enum(["high", "medium", "low"]).optional(),
@@ -72,6 +73,16 @@ export function registerGitPulseTools(server: McpServer) {
       inputSchema: z.object({ actionItemId: z.string() }),
     },
     async ({ actionItemId }) => json(await publishActionItem(actionItemId)),
+  );
+
+  server.registerTool(
+    "open_pull_request",
+    {
+      description:
+        "Open a draft PR for an action item's gitpulse/<id> branch (push the branch first — e.g. `git push -u origin gitpulse/<id>`). Idempotent — calling it again on an item that already has a PR returns the existing PR instead of opening a duplicate. Only reachable when GitPulse's MCP server is registered in the target repo; otherwise the user can trigger this from the workspace's Pull Requests tab instead.",
+      inputSchema: z.object({ actionItemId: z.string() }),
+    },
+    async ({ actionItemId }) => json(await openDraftPullRequest(actionItemId)),
   );
 
   server.registerTool(

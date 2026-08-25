@@ -47,6 +47,12 @@ export const createIssueRequestSchema = z.object({
 });
 export type CreateIssueRequest = z.infer<typeof createIssueRequestSchema>;
 
+/** Body for POST /api/pulls — opens a draft PR for the item's gitpulse/<id> branch. */
+export const openPullRequestRequestSchema = z.object({
+  actionItemId: z.string().min(1),
+});
+export type OpenPullRequestRequest = z.infer<typeof openPullRequestRequestSchema>;
+
 /**
  * Body for PATCH /api/projects. Sets the absolute path to a project's local
  * clone, used to open an embedded terminal in that directory. Accepts a
@@ -76,5 +82,20 @@ export const settingsUpdateSchema = z.object({
   cronSecret: z.string().optional(),
   costPerMillionInput: z.string().optional(),
   costPerMillionOutput: z.string().optional(),
+  /** Per-agent CLI command/args overrides, keyed by agent id (see lib/terminal/agents.ts). */
+  agentOverrides: z
+    .record(z.string(), z.object({ command: z.string().optional(), args: z.array(z.string()).optional() }))
+    .optional(),
 });
 export type SettingsUpdateRequest = z.infer<typeof settingsUpdateSchema>;
+
+/** Body for POST /api/settings/clear-data — the Settings page's Danger Zone. */
+export const clearDataRequestSchema = z
+  .object({
+    clearSettings: z.boolean().default(false),
+    clearSyncData: z.boolean().default(false),
+  })
+  .refine((data) => data.clearSettings || data.clearSyncData, {
+    message: "Select at least one category to clear.",
+  });
+export type ClearDataRequest = z.infer<typeof clearDataRequestSchema>;

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { settings } from "@/lib/db/schema";
+import type { AgentOverrides } from "@/lib/terminal/agents";
 
 const SETTINGS_ID = "default";
 
@@ -11,6 +12,18 @@ export interface ResolvedSettings {
   cronSecret: string | null;
   costPerMillionInput: string | null;
   costPerMillionOutput: string | null;
+  agentOverrides: AgentOverrides;
+}
+
+/** Parses the stored `agent_overrides` JSON, tolerating missing/malformed data. */
+export function parseAgentOverrides(raw: string | null | undefined): AgentOverrides {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as AgentOverrides) : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -31,6 +44,7 @@ export async function resolveSettings(): Promise<ResolvedSettings> {
     cronSecret: row?.cronSecret || process.env.CRON_SECRET || null,
     costPerMillionInput: row?.costPerMillionInput || process.env.LLM_COST_PER_MILLION_INPUT || null,
     costPerMillionOutput: row?.costPerMillionOutput || process.env.LLM_COST_PER_MILLION_OUTPUT || null,
+    agentOverrides: parseAgentOverrides(row?.agentOverrides),
   };
 }
 
@@ -90,6 +104,8 @@ export interface SettingsUpdate {
   cronSecret?: string;
   costPerMillionInput?: string;
   costPerMillionOutput?: string;
+  /** Replaces the whole overrides map (the settings form submits it in full, not per-agent). */
+  agentOverrides?: AgentOverrides;
 }
 
 /**
@@ -111,6 +127,7 @@ export async function upsertSettings(update: SettingsUpdate): Promise<void> {
     cronSecret: existing?.cronSecret ?? null,
     costPerMillionInput: existing?.costPerMillionInput ?? null,
     costPerMillionOutput: existing?.costPerMillionOutput ?? null,
+    agentOverrides: existing?.agentOverrides ?? null,
   };
 
   if ("githubToken" in update) next.githubToken = update.githubToken || null;
@@ -118,6 +135,16 @@ export async function upsertSettings(update: SettingsUpdate): Promise<void> {
   if ("llmApiKey" in update) next.llmApiKey = update.llmApiKey || null;
   if ("llmModel" in update) next.llmModel = update.llmModel || null;
   if ("cronSecret" in update) next.cronSecret = update.cronSecret || null;
+  if ("agentOverrides" in update) {
+    const cleaned = update.agentOverrides
+      ? Object.fromEntries(
+          Object.entries(update.agentOverrides).filter(
+            ([, v]) => v && (v.command?.trim() || (v.args && v.args.length > 0)),
+          ),
+        )
+      : {};
+    next.agentOverrides = Object.keys(cleaned).length > 0 ? JSON.stringify(cleaned) : null;
+  }
   if ("costPerMillionInput" in update)
     next.costPerMillionInput = update.costPerMillionInput || null;
   if ("costPerMillionOutput" in update)

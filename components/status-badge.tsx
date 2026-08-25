@@ -50,9 +50,9 @@ export function toneFromPriority(priority: "high" | "medium" | "low"): BadgeTone
 
 /** Maps action_items.status values to a badge tone. */
 export function toneFromStatus(
-  status: "suggested" | "approved" | "synced" | "dismissed",
+  status: "suggested" | "approved" | "synced" | "shipped" | "dismissed",
 ): BadgeTone {
-  if (status === "synced") return "synced";
+  if (status === "synced" || status === "shipped") return "synced";
   if (status === "dismissed") return "refactor";
   return "pending";
 }
