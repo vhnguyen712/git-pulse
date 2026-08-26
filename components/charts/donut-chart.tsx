@@ -8,6 +8,8 @@ export interface DonutDatum {
   value: number;
   /** CSS color value, e.g. "var(--accent-green)". */
   color: string;
+  /** Shown as a hover tooltip on the legend row, e.g. what the status means. */
+  description?: string;
 }
 
 const SIZE = 96;
@@ -80,7 +82,11 @@ export function DonutChart({
       </svg>
       <ul className="flex flex-col gap-1 text-xs">
         {data.map((d, i) => (
-          <li key={i} className="flex items-center gap-1.5 text-on-surface-variant">
+          <li
+            key={i}
+            className="flex items-center gap-1.5 text-on-surface-variant"
+            title={d.description}
+          >
             <span
               className="size-2 shrink-0 rounded-full"
               style={{ backgroundColor: d.color }}
