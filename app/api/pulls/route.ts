@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { reconcilePullRequests, getPrCandidates, openDraftPullRequest } from "@/lib/pulls";
+import {
+  reconcilePullRequests,
+  getPrCandidates,
+  getConflictingPrs,
+  openDraftPullRequest,
+} from "@/lib/pulls";
 import { GitHubConfigError, GitHubRateLimitError } from "@/lib/github";
 import { openPullRequestRequestSchema } from "@/lib/schema";
 import { logger } from "@/lib/logging";
@@ -33,7 +38,8 @@ export async function GET(req: Request) {
       where: (a, { eq }) => eq(a.projectId, project.id),
     });
     const candidates = await getPrCandidates(project, pulls, items);
-    return NextResponse.json({ pulls, candidates, actionItems: items });
+    const conflicts = await getConflictingPrs(project, items);
+    return NextResponse.json({ pulls, candidates, conflicts, actionItems: items });
   } catch (err) {
     if (err instanceof GitHubConfigError) {
       return NextResponse.json({ error: err.message }, { status: 500 });

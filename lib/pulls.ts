@@ -6,9 +6,11 @@ import {
   listBranches,
   createDraftPullRequest,
   getPullRequest,
+  getPullRequestMergeStatus,
   type PullRequestSummary,
 } from "@/lib/github";
 import { branchNameForItem, actionItemIdFromBranch } from "@/lib/pull-branch";
+import { logger } from "@/lib/logging";
 
 /** A `gitpulse/<id>` branch that's pushed but doesn't have a PR yet. */
 export interface PrCandidate {
@@ -111,6 +113,62 @@ export async function getPrCandidates(
     candidates.push({ actionItemId, title: item.title, branch });
   }
   return candidates;
+}
+
+/** A `gitpulse/<id>` branch whose open PR conflicts with the base branch. */
+export interface ConflictInfo {
+  actionItemId: string;
+  branch: string;
+  baseBranch: string;
+  prNumber: number;
+  prUrl: string;
+}
+
+/**
+ * Checks each action item's open/draft PR for merge conflicts against the
+ * base branch (GitHub's `mergeable_state: "dirty"`). Only ever called for
+ * items GitPulse itself pushed a `gitpulse/<id>` branch for, since that's a
+ * bounded, small set — unlike open PRs generally, which could be many and
+ * unrelated. Feeds the workspace's conflict banner + "Resolve with agent"
+ * flow (components/action-item-card.tsx), which offers an LLM-assisted
+ * resolution in the embedded terminal instead of leaving the user to
+ * untangle it with raw git.
+ */
+export async function getConflictingPrs(
+  project: Project,
+  items: ActionItem[],
+): Promise<ConflictInfo[]> {
+  const candidates = items.filter(
+    (item): item is ActionItem & { githubPrNumber: number; githubPrUrl: string } =>
+      item.githubPrNumber != null &&
+      item.githubPrUrl != null &&
+      (item.githubPrState === "draft" || item.githubPrState === "open"),
+  );
+  if (candidates.length === 0) return [];
+
+  const results = await Promise.all(
+    candidates.map(async (item) => {
+      try {
+        const status = await getPullRequestMergeStatus(
+          project.owner,
+          project.repoName,
+          item.githubPrNumber,
+        );
+        if (status.mergeableState !== "dirty") return null;
+        return {
+          actionItemId: item.id,
+          branch: branchNameForItem(item.id),
+          baseBranch: project.defaultBranch,
+          prNumber: item.githubPrNumber,
+          prUrl: item.githubPrUrl,
+        } satisfies ConflictInfo;
+      } catch (err) {
+        logger.error(`getPullRequestMergeStatus failed for PR #${item.githubPrNumber}`, err);
+        return null;
+      }
+    }),
+  );
+  return results.filter((r): r is ConflictInfo => r !== null);
 }
 
 function prBody(item: ActionItem): string {

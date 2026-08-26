@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ExternalLink,
@@ -10,6 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import type { ActionItem } from "@/lib/db/schema";
+import type { ConflictInfo } from "@/lib/pulls";
 import {
   StatusBadge,
   toneFromCategory,
@@ -57,11 +59,32 @@ function buildPrompt(item: ActionItem, baseBranch: string): string {
   return [...task, ...wrapUp].join("\n");
 }
 
+/**
+ * Task prompt for resolving a merge conflict: the seeded terminal's worktree
+ * is already checked out on the item's existing `gitpulse/<id>` branch (see
+ * lib/terminal/server.ts's `startRef` handling), so this just walks the
+ * agent through merging the base branch in, resolving conflicts, and pushing
+ * back onto the same branch — no raw git knowledge required from the user.
+ */
+function buildConflictPrompt(item: ActionItem, conflict: ConflictInfo): string {
+  return [
+    `The pull request for "${item.title}" has a merge conflict with "${conflict.baseBranch}": ${conflict.prUrl}`,
+    "",
+    `You're already in a worktree on the "${conflict.branch}" branch. To resolve it:`,
+    `1. Fetch and merge the base branch: git fetch origin ${conflict.baseBranch} && git merge origin/${conflict.baseBranch}`,
+    "2. Resolve every conflicted file, then stage each one with git add.",
+    "3. Commit the merge and push it back: git commit && git push",
+    "",
+    "Do not force-push or rewrite history — just resolve the conflicts and merge normally.",
+  ].join("\n");
+}
+
 export function ActionItemCard({
   item,
   pushing,
   error,
   baseBranch,
+  conflict,
   onPush,
   onOpenTerminal,
 }: {
@@ -70,9 +93,12 @@ export function ActionItemCard({
   error?: string;
   /** Repo's default branch — the base the seeded prompt tells Claude's PR will target. */
   baseBranch: string;
+  /** Set when this item's PR has a merge conflict against the base branch. */
+  conflict?: ConflictInfo;
   onPush: () => void;
-  /** Opens the embedded terminal panel with this item's prompt pre-filled, running the given agent CLI. */
-  onOpenTerminal: (prompt: string, title: string, agentId: string) => void;
+  /** Opens the embedded terminal panel with this item's prompt pre-filled, running the given agent CLI.
+   * `startRef`, when passed, resumes that existing branch instead of starting a new one. */
+  onOpenTerminal: (prompt: string, title: string, agentId: string, startRef?: string) => void;
 }) {
   const canPush = item.status === "suggested" || item.status === "approved";
   const isSynced = item.status === "synced" || item.status === "shipped";
@@ -103,6 +129,30 @@ export function ActionItemCard({
       )}
 
       {error && <p className="text-xs text-accent-orange">{error}</p>}
+
+      {conflict && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent-orange/30 bg-accent-orange-bg px-2 py-1.5">
+          <p className="flex items-center gap-1.5 text-xs text-accent-orange">
+            <AlertTriangle className="size-3 shrink-0" />
+            Merge conflict with {conflict.baseBranch}
+          </p>
+          <button
+            onClick={() =>
+              onOpenTerminal(
+                buildConflictPrompt(item, conflict),
+                `Fix conflict: ${item.title}`,
+                DEFAULT_AGENT_ID,
+                conflict.branch,
+              )
+            }
+            title={`Open a ${getAgent(DEFAULT_AGENT_ID).label} session already on "${conflict.branch}" to resolve the conflict`}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent-orange/40 px-2 py-1 text-xs font-medium text-accent-orange hover:bg-white/5"
+          >
+            <SquareTerminal className="size-3" />
+            Resolve with {getAgent(DEFAULT_AGENT_ID).label}
+          </button>
+        </div>
+      )}
 
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
         {isSynced && item.githubIssueUrl ? (

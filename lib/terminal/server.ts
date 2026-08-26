@@ -132,6 +132,12 @@ export async function attachTerminal(ws: WebSocket, req: IncomingMessage) {
     return;
   }
 
+  // A session opened to resume an existing gitpulse/<id> branch (e.g. the
+  // "Resolve conflict" action on an action-item card) passes that branch here
+  // so its worktree checks it out directly instead of branching off the base
+  // — see components/action-item-card.tsx and lib/terminal/worktree.ts.
+  const resumeBranch = url.searchParams.get("startRef");
+
   // Give each session its own git worktree so concurrent terminals don't share
   // (and clobber) one working tree. Falls back to the repo itself when it isn't
   // a git repo or the worktree can't be created — behavior is unchanged there.
@@ -143,7 +149,8 @@ export async function attachTerminal(ws: WebSocket, req: IncomingMessage) {
     worktreePath = await createSessionWorktree(
       project.localPath,
       sessionId,
-      project.syncBranch ?? project.defaultBranch,
+      resumeBranch ?? project.syncBranch ?? project.defaultBranch,
+      resumeBranch ? { resumeBranch: true } : undefined,
     );
     if (worktreePath) cwd = worktreePath;
     else repoPath = null; // creation failed; nothing to clean up later

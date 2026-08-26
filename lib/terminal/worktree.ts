@@ -62,6 +62,31 @@ async function resolveStartPoint(repoPath: string, preferred?: string | null): P
   return "HEAD";
 }
 
+/**
+ * Brings `branch` up to date from the remote into a local ref of the same
+ * name, force-updating it so a stale local copy doesn't shadow what's
+ * actually on GitHub. Used when resuming an existing `gitpulse/<id>` branch
+ * (e.g. for conflict resolution) rather than starting a new one off the base
+ * branch. Returns false if the branch isn't on the remote and there's no
+ * local copy to fall back to either.
+ */
+async function ensureLocalBranch(repoPath: string, branch: string): Promise<boolean> {
+  try {
+    await git(repoPath, ["fetch", "origin", `+${branch}:${branch}`]);
+    return true;
+  } catch {
+    // Offline, remote branch gone, or it's checked out in another live
+    // worktree (git refuses to move a ref out from under it) — fall back to
+    // whatever's already local, if anything.
+  }
+  try {
+    await git(repoPath, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The folder holding this repo's session worktrees (a sibling of the repo). */
 function worktreesBaseFor(topLevel: string): string {
   return path.join(path.dirname(topLevel), WORKTREES_DIRNAME);
@@ -110,11 +135,17 @@ async function isRegisteredWorktree(repoPath: string, wtPath: string): Promise<b
  * The worktree starts on a detached HEAD at the base branch's tip; the seeded
  * prompt has Claude run `git switch -c gitpulse/<id>` from there, so no
  * throwaway session branch is left behind.
+ *
+ * Passing `resumeBranch: true` instead checks `startRef` out as a real branch
+ * (not detached) — used to resume an existing `gitpulse/<id>` branch (e.g.
+ * for conflict resolution), where the session needs to `git push` back onto
+ * it rather than create something new.
  */
 export async function createSessionWorktree(
   repoPath: string,
   sessionId: string,
   startRef?: string | null,
+  opts?: { resumeBranch?: boolean },
 ): Promise<string | null> {
   const topLevel = await gitTopLevel(repoPath);
   if (!topLevel) return null;
@@ -137,6 +168,12 @@ export async function createSessionWorktree(
     }
 
     fs.mkdirSync(path.dirname(wtPath), { recursive: true });
+
+    if (opts?.resumeBranch && startRef && (await ensureLocalBranch(repoPath, startRef))) {
+      await git(repoPath, ["worktree", "add", wtPath, startRef]);
+      return wtPath;
+    }
+
     const start = await resolveStartPoint(repoPath, startRef);
     await git(repoPath, ["worktree", "add", "--detach", wtPath, start]);
     return wtPath;

@@ -9,7 +9,13 @@ import {
   type CompareCommit,
   type PullRequestSummary,
 } from "@/lib/github";
-import { reconcilePullRequests, getPrCandidates, type PrCandidate } from "@/lib/pulls";
+import {
+  reconcilePullRequests,
+  getPrCandidates,
+  getConflictingPrs,
+  type PrCandidate,
+  type ConflictInfo,
+} from "@/lib/pulls";
 import type { Analysis } from "@/lib/schema";
 import type { ActionItem, Project } from "@/lib/db/schema";
 import { getProjectHistory, type SyncHistoryEntry } from "@/lib/history";
@@ -29,6 +35,8 @@ export interface WorkspaceData {
   pulls: PullRequestSummary[];
   /** gitpulse/<id> branches pushed but not yet turned into a PR. */
   prCandidates: PrCandidate[];
+  /** action items whose open PR conflicts with the base branch. */
+  conflicts: ConflictInfo[];
 }
 
 /**
@@ -53,6 +61,7 @@ export async function getWorkspaceData(
   let history: SyncHistoryEntry[] = [];
   let pulls: PullRequestSummary[] = [];
   let prCandidates: PrCandidate[] = [];
+  let conflicts: ConflictInfo[] = [];
   // Pre-select the branch the picker should show: the user's stored override,
   // or GitHub's live default branch. Resolving the default live (rather than
   // trusting the possibly-stale projects.default_branch column) keeps this in
@@ -92,6 +101,13 @@ export async function getWorkspaceData(
       logger.error("getPrCandidates failed during workspace load", err);
     }
 
+    try {
+      conflicts = await getConflictingPrs(project, items);
+    } catch (err) {
+      if (err instanceof GitHubConfigError || err instanceof GitHubRateLimitError) throw err;
+      logger.error("getConflictingPrs failed during workspace load", err);
+    }
+
     history = await getProjectHistory(project.id);
 
     // Opening the workspace clears its "new items" badge on the Overview —
@@ -111,5 +127,6 @@ export async function getWorkspaceData(
     syncBranch,
     pulls,
     prCandidates,
+    conflicts,
   };
 }

@@ -13,13 +13,23 @@ export interface TerminalSession {
   title: string;
   /** Which agent CLI this session runs (see lib/terminal/agents.ts). */
   agentId: string;
+  /** When set, the session's worktree checks out this existing branch
+   * directly (instead of branching off the base) — used to resume a
+   * `gitpulse/<id>` branch, e.g. for conflict resolution. */
+  startRef?: string;
 }
 
 interface TerminalContextValue {
   sessions: TerminalSession[];
   activeId: string | null;
   height: number;
-  openTerminal: (project: Project, prompt: string, title: string, agentId?: string) => void;
+  openTerminal: (
+    project: Project,
+    prompt: string,
+    title: string,
+    agentId?: string,
+    startRef?: string,
+  ) => void;
   activateSession: (id: string) => void;
   closeSession: (id: string) => void;
   updateProject: (project: Project) => void;
@@ -44,7 +54,13 @@ export function TerminalProvider({ children }: { children: React.ReactNode }) {
   const [height, setHeightState] = useState(DEFAULT_HEIGHT);
 
   const openTerminal = useCallback(
-    (project: Project, prompt: string, title: string, agentId: string = DEFAULT_AGENT_ID) => {
+    (
+      project: Project,
+      prompt: string,
+      title: string,
+      agentId: string = DEFAULT_AGENT_ID,
+      startRef?: string,
+    ) => {
       // Re-opening the same task with the same agent just refocuses its
       // existing tab rather than spawning a duplicate session for it —
       // opening it with a *different* agent gets its own tab.
@@ -66,6 +82,7 @@ export function TerminalProvider({ children }: { children: React.ReactNode }) {
         prompt,
         title: title.trim() || `${project.owner}/${project.repoName}`,
         agentId,
+        startRef,
       };
       setSessions((prev) => [...prev, session]);
       setActiveId(session.id);

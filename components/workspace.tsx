@@ -14,7 +14,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { WorkspaceData } from "@/lib/workspace";
-import type { PrCandidate } from "@/lib/pulls";
+import type { PrCandidate, ConflictInfo } from "@/lib/pulls";
 import type { ActionItem, Project } from "@/lib/db/schema";
 import type { Analysis } from "@/lib/schema";
 import { MonoText, shortSha } from "@/components/mono-text";
@@ -73,13 +73,16 @@ export function Workspace({
 
   const [pulls, setPulls] = useState<PullRequestSummary[]>(initial.pulls);
   const [prCandidates, setPrCandidates] = useState<PrCandidate[]>(initial.prCandidates);
+  const [conflicts, setConflicts] = useState<ConflictInfo[]>(initial.conflicts);
   const [pullsRefreshing, setPullsRefreshing] = useState(false);
   const [pullsError, setPullsError] = useState<string | null>(null);
   const [openingPrId, setOpeningPrId] = useState<string | null>(null);
 
+  const conflictsByItemId = new Map(conflicts.map((c) => [c.actionItemId, c]));
+
   const { openTerminal } = useTerminal();
-  function handleOpenTerminal(prompt: string, title: string, agentId?: string) {
-    if (project) openTerminal(project, prompt, title, agentId);
+  function handleOpenTerminal(prompt: string, title: string, agentId?: string, startRef?: string) {
+    if (project) openTerminal(project, prompt, title, agentId, startRef);
   }
 
   const [activeTab, setActiveTab] = useState<TabKey>("git");
@@ -178,6 +181,7 @@ export function Workspace({
       }
       setPulls(body.pulls);
       setPrCandidates(body.candidates);
+      setConflicts(body.conflicts ?? []);
       // Merge the reconciled rows back in so card "View PR" links refresh too.
       const byId = new Map<string, ActionItem>(
         (body.actionItems ?? []).map((i: ActionItem) => [i.id, i]),
@@ -429,6 +433,7 @@ export function Workspace({
                         pushing={pushingId === item.id}
                         error={pushErrors[item.id]}
                         baseBranch={project?.defaultBranch ?? branch}
+                        conflict={conflictsByItemId.get(item.id)}
                         onPush={() => handlePush(item)}
                         onOpenTerminal={handleOpenTerminal}
                       />
@@ -457,6 +462,7 @@ export function Workspace({
                   pushing={pushingId === item.id}
                   error={pushErrors[item.id]}
                   baseBranch={project?.defaultBranch ?? branch}
+                  conflict={conflictsByItemId.get(item.id)}
                   onPush={() => handlePush(item)}
                   onOpenTerminal={handleOpenTerminal}
                 />
