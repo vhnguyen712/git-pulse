@@ -219,11 +219,36 @@ export function Workspace({
 
   const commitActivity = commitsByDay(commits);
   const statusFunnel: DonutDatum[] = [
-    { label: "Suggested", value: items.filter((i) => i.status === "suggested").length, color: "var(--accent-amber)" },
-    { label: "Approved", value: items.filter((i) => i.status === "approved").length, color: "var(--accent-blue)" },
-    { label: "Synced", value: items.filter((i) => i.status === "synced").length, color: "var(--accent-green)" },
-    { label: "Shipped", value: items.filter((i) => i.status === "shipped").length, color: "var(--accent-green)" },
-    { label: "Dismissed", value: items.filter((i) => i.status === "dismissed").length, color: "var(--accent-purple)" },
+    {
+      label: "Suggested",
+      value: items.filter((i) => i.status === "suggested").length,
+      color: "var(--accent-amber)",
+      description: "AI-surfaced idea, not yet reviewed.",
+    },
+    {
+      label: "Approved",
+      value: items.filter((i) => i.status === "approved").length,
+      color: "var(--accent-blue)",
+      description: "Reviewed and greenlit, not yet pushed to GitHub.",
+    },
+    {
+      label: "Synced",
+      value: items.filter((i) => i.status === "synced").length,
+      color: "var(--accent-green)",
+      description: "Filed as a GitHub issue.",
+    },
+    {
+      label: "Shipped",
+      value: items.filter((i) => i.status === "shipped").length,
+      color: "var(--accent-green)",
+      description: "Its pull request was merged.",
+    },
+    {
+      label: "Dismissed",
+      value: items.filter((i) => i.status === "dismissed").length,
+      color: "var(--accent-purple)",
+      description: "Rejected — won't be pushed or synced.",
+    },
   ];
   const priorityBreakdown: BarDatum[] = (["high", "medium", "low"] as const).map((p) => ({
     label: p,
