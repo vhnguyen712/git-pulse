@@ -240,6 +240,7 @@ function TerminalPane({
         // so replaying would just duplicate the tail of it.
         replay: String(!isReconnect),
       });
+      if (session.startRef) params.set("startRef", session.startRef);
       ws = new WebSocket(`${proto}//${window.location.host}/api/terminal?${params}`);
 
       ws.onopen = () => {

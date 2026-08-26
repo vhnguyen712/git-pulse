@@ -455,6 +455,35 @@ export async function getPullRequest(
   });
 }
 
+export interface PullRequestMergeStatus {
+  /** Null while GitHub is still computing mergeability — caller should treat as unknown, not clean. */
+  mergeable: boolean | null;
+  /** "dirty" means it has conflicts with its base; see GitHub's mergeable_state docs for the rest. */
+  mergeableState: "clean" | "dirty" | "unstable" | "blocked" | "behind" | "draft" | "unknown";
+}
+
+/**
+ * Per-PR mergeability, used to detect merge conflicts against the base
+ * branch. Unlike listOpenPullRequests (pulls.list), this field is only
+ * populated on the single-PR endpoint, so it's fetched one PR at a time —
+ * callers should only do this for PRs they actually need to check (see
+ * lib/pulls.ts#getConflictingPrs).
+ */
+export async function getPullRequestMergeStatus(
+  owner: string,
+  repo: string,
+  pullNumber: number,
+): Promise<PullRequestMergeStatus> {
+  const octokit = await getOctokit();
+  return withRateLimitHandling(async () => {
+    const { data } = await octokit.pulls.get({ owner, repo, pull_number: pullNumber });
+    return {
+      mergeable: data.mergeable ?? null,
+      mergeableState: (data.mergeable_state as PullRequestMergeStatus["mergeableState"]) ?? "unknown",
+    };
+  });
+}
+
 /**
  * Opens a draft PR for a branch already pushed to the repo. On a 422 —
  * GitHub's response when `head` doesn't exist yet or has no commits ahead of
