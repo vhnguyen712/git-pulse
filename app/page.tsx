@@ -1,5 +1,6 @@
 import { getRepoCards, type RepoCardData } from "@/lib/repos";
 import { getPortfolioSummary, type PortfolioSummary } from "@/lib/portfolio";
+import { PageHeader } from "@/components/page-header";
 
 // This dashboard's data (GitHub state, sync status) changes on every visit —
 // never let the build bake in a stale snapshot.
@@ -45,15 +46,8 @@ export default async function HubPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <div className="mb-6">
-        <h1 className="font-heading text-xl font-semibold text-on-surface">
-          Overview
-        </h1>
-        <p className="text-sm text-on-surface-variant">
-          Your side-projects, at a glance.
-        </p>
-      </div>
+    <div className="px-4 py-6 sm:px-6">
+      <PageHeader title="Overview" description="Your side-projects, at a glance." />
       {portfolio && <PortfolioStrip summary={portfolio} />}
       <RepoGrid repos={repos!} />
     </div>

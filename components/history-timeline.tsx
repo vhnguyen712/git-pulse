@@ -33,7 +33,7 @@ export function HistoryTimeline({ history }: { history: SyncHistoryEntry[] }) {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <TrendCard title="Shipped next-steps per sync" data={shippedTrend} color="var(--accent-green)" />
         <TrendCard title="Proposed (open) per sync" data={proposedTrend} color="var(--accent-amber)" />
         {tokenTrend.length > 0 && (
@@ -77,7 +77,7 @@ export function HistoryTimeline({ history }: { history: SyncHistoryEntry[] }) {
 
 function TrendCard({ title, data, color }: { title: string; data: number[]; color: string }) {
   return (
-    <div className="rounded-md border border-outline-variant p-3">
+    <div className="rounded-lg border border-outline-variant p-3">
       <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-on-surface-variant">
         {title}
       </p>
