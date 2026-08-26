@@ -1,14 +1,20 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronRight, LayoutGrid, List } from "lucide-react";
 import type { ActionItem } from "@/lib/db/schema";
 import type { SuggestionsData } from "@/lib/suggestions";
 import { ActionItemCard } from "@/components/action-item-card";
-import { StatusBadge, toneFromStatus } from "@/components/status-badge";
+import {
+  StatusBadge,
+  toneFromCategory,
+  toneFromPriority,
+  toneFromStatus,
+} from "@/components/status-badge";
 import { useTerminal } from "@/components/terminal-context";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "board" | "list";
@@ -82,6 +88,11 @@ export function SuggestionsDashboard({ initial }: { initial: SuggestionsData }) 
     setCustomTo(value);
     setDateRange(computeDateRange("custom", customFrom, value));
   }
+  const filtersActive = repoFilter !== "all" || datePreset !== "all";
+  function handleClearFilters() {
+    setRepoFilter("all");
+    handleDatePresetChange("all");
+  }
 
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -153,24 +164,82 @@ export function SuggestionsDashboard({ initial }: { initial: SuggestionsData }) 
   const selectedItem = selectedId ? (items.find((i) => i.id === selectedId) ?? null) : null;
   const selectedProject = selectedItem ? projectsById.get(selectedItem.projectId) : undefined;
 
-  /** Collapsed row: just the title (plus which repo it's from) — click opens the full card in a dialog. */
-  function renderRow(item: ActionItem) {
+  // Board columns can overflow horizontally past the viewport — these track
+  // whether there's more content off-screen so a fade hint can be shown.
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  function updateBoardScrollState() {
+    const el = boardScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+  }
+  useEffect(() => {
+    updateBoardScrollState();
+    window.addEventListener("resize", updateBoardScrollState);
+    return () => window.removeEventListener("resize", updateBoardScrollState);
+  }, [filteredItems.length, view]);
+
+  /** Row: title plus scannable priority/category/repo/age — click opens the full card in a dialog. */
+  function renderRow(item: ActionItem, variant: "board" | "list" = "board") {
     const project = projectsById.get(item.projectId);
+    const badges = (
+      <>
+        {item.priority && (
+          <StatusBadge tone={toneFromPriority(item.priority)}>{item.priority}</StatusBadge>
+        )}
+        {item.category && (
+          <StatusBadge tone={toneFromCategory(item.category)}>{item.category}</StatusBadge>
+        )}
+      </>
+    );
+    const attribution = (
+      <>
+        {project && (
+          <span className="truncate">
+            {project.owner}/{project.repoName}
+          </span>
+        )}
+        <span className="shrink-0">{timeAgo(item.createdAt)}</span>
+      </>
+    );
+
+    if (variant === "list") {
+      return (
+        <button
+          key={item.id}
+          onClick={() => setSelectedId(item.id)}
+          className="flex items-center justify-between gap-3 rounded-lg border border-outline-variant bg-surface p-3 text-left transition-colors hover:border-outline"
+        >
+          <h4 className="min-w-0 truncate text-sm font-medium text-on-surface">{item.title}</h4>
+          <div className="flex shrink-0 items-center gap-3">
+            <div className="flex items-center gap-1.5">{badges}</div>
+            <div className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+              {attribution}
+            </div>
+            <ChevronRight className="size-3.5 shrink-0 text-on-surface-variant" />
+          </div>
+        </button>
+      );
+    }
+
     return (
       <button
         key={item.id}
         onClick={() => setSelectedId(item.id)}
-        className="flex flex-col gap-0.5 rounded-lg border border-outline-variant bg-surface p-3 text-left transition-colors hover:border-outline"
+        className="flex flex-col gap-1 rounded-lg border border-outline-variant bg-surface p-3 text-left transition-colors hover:border-outline"
       >
         <div className="flex items-center justify-between gap-2">
           <h4 className="truncate text-sm font-medium text-on-surface">{item.title}</h4>
           <ChevronRight className="size-3.5 shrink-0 text-on-surface-variant" />
         </div>
-        {project && (
-          <span className="text-[11px] text-on-surface-variant">
-            {project.owner}/{project.repoName}
-          </span>
+        {(item.priority || item.category) && (
+          <div className="flex flex-wrap items-center gap-1.5">{badges}</div>
         )}
+        <div className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+          {attribution}
+        </div>
       </button>
     );
   }
@@ -224,6 +293,15 @@ export function SuggestionsDashboard({ initial }: { initial: SuggestionsData }) 
               />
             </div>
           )}
+
+          {filtersActive && (
+            <button
+              onClick={handleClearFilters}
+              className="rounded-md border border-outline-variant px-2.5 py-1.5 text-xs text-on-surface-variant transition-colors hover:bg-white/5 hover:text-on-surface"
+            >
+              Clear filters
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-0.5 rounded-md border border-outline-variant p-0.5">
@@ -261,28 +339,49 @@ export function SuggestionsDashboard({ initial }: { initial: SuggestionsData }) 
             : "No suggestions match the current filters."}
         </p>
       ) : view === "board" ? (
-        <div className="scroll-fade flex flex-1 gap-3 overflow-x-auto pb-2">
-          {STATUS_COLUMNS.map((col) => {
-            const colItems = filteredItems.filter((i) => i.status === col.key);
-            return (
-              <div
-                key={col.key}
-                className="flex min-w-64 flex-1 flex-col gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-2"
-              >
-                <div className="flex items-center justify-between px-1 py-0.5">
-                  <StatusBadge tone={toneFromStatus(col.key)}>{col.title}</StatusBadge>
-                  <span className="text-[11px] text-on-surface-variant">{colItems.length}</span>
+        <div className="relative flex-1 overflow-hidden">
+          {canScrollLeft && (
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-10 bg-gradient-to-r from-surface to-transparent" />
+          )}
+          {canScrollRight && (
+            <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-surface to-transparent" />
+          )}
+          <div
+            ref={boardScrollRef}
+            onScroll={updateBoardScrollState}
+            className="scroll-fade flex h-full gap-3 overflow-x-auto pb-2"
+          >
+            {STATUS_COLUMNS.map((col) => {
+              const colItems = filteredItems.filter((i) => i.status === col.key);
+              return (
+                <div
+                  key={col.key}
+                  className={cn(
+                    "flex min-w-64 flex-1 flex-col gap-2 rounded-lg border border-outline-variant bg-surface-container-low p-2",
+                    col.key === "dismissed" && "opacity-70",
+                  )}
+                >
+                  <div className="flex items-center justify-between px-1 py-0.5">
+                    <StatusBadge tone={toneFromStatus(col.key)}>{col.title}</StatusBadge>
+                    <span className="text-[11px] text-on-surface-variant">{colItems.length}</span>
+                  </div>
+                  <div className="scroll-fade flex flex-1 flex-col gap-2 overflow-y-auto">
+                    {colItems.length === 0 ? (
+                      <p className="flex flex-1 items-center justify-center text-center text-[11px] text-on-surface-variant">
+                        No items
+                      </p>
+                    ) : (
+                      colItems.map((item) => renderRow(item))
+                    )}
+                  </div>
                 </div>
-                <div className="scroll-fade flex flex-1 flex-col gap-2 overflow-y-auto">
-                  {colItems.map(renderRow)}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       ) : (
         <div className="scroll-fade flex flex-col gap-2 overflow-y-auto">
-          {filteredItems.map(renderRow)}
+          {filteredItems.map((item) => renderRow(item, "list"))}
         </div>
       )}
 
