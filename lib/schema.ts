@@ -53,6 +53,12 @@ export const openPullRequestRequestSchema = z.object({
 });
 export type OpenPullRequestRequest = z.infer<typeof openPullRequestRequestSchema>;
 
+/** Body for DELETE /api/action-items — permanently removes a local action item. */
+export const deleteActionItemRequestSchema = z.object({
+  actionItemId: z.string().min(1),
+});
+export type DeleteActionItemRequest = z.infer<typeof deleteActionItemRequestSchema>;
+
 /**
  * Body for PATCH /api/projects. Sets the absolute path to a project's local
  * clone, used to open an embedded terminal in that directory. Accepts a

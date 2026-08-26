@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GitBranch, LayoutGrid, Menu, Settings } from "lucide-react";
+import { GitBranch, LayoutGrid, Lightbulb, Menu, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -16,6 +16,7 @@ import { TerminalDock } from "@/components/terminal-panel";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutGrid },
+  { href: "/suggestions", label: "Suggestions", icon: Lightbulb },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

@@ -70,6 +70,7 @@ export function Workspace({
 
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [pushErrors, setPushErrors] = useState<Record<string, string>>({});
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const [pulls, setPulls] = useState<PullRequestSummary[]>(initial.pulls);
   const [prCandidates, setPrCandidates] = useState<PrCandidate[]>(initial.prCandidates);
@@ -166,6 +167,22 @@ export function Workspace({
       setPushErrors((e) => ({ ...e, [item.id]: "Network error." }));
     } finally {
       setPushingId(null);
+    }
+  }
+
+  async function handleRemove(item: ActionItem) {
+    setRemovingId(item.id);
+    try {
+      const res = await fetch("/api/action-items", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionItemId: item.id }),
+      });
+      if (!res.ok) return;
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+      startRefresh(() => router.refresh());
+    } finally {
+      setRemovingId(null);
     }
   }
 
@@ -436,6 +453,8 @@ export function Workspace({
                         conflict={conflictsByItemId.get(item.id)}
                         onPush={() => handlePush(item)}
                         onOpenTerminal={handleOpenTerminal}
+                        onRemove={() => handleRemove(item)}
+                        removing={removingId === item.id}
                       />
                     ))}
                   </div>
@@ -465,6 +484,8 @@ export function Workspace({
                   conflict={conflictsByItemId.get(item.id)}
                   onPush={() => handlePush(item)}
                   onOpenTerminal={handleOpenTerminal}
+                  onRemove={() => handleRemove(item)}
+                  removing={removingId === item.id}
                 />
               ))}
             </div>

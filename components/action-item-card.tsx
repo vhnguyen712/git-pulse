@@ -8,6 +8,7 @@ import {
   ExternalLink,
   GitPullRequest,
   SquareTerminal,
+  Trash2,
   Upload,
 } from "lucide-react";
 import type { ActionItem } from "@/lib/db/schema";
@@ -87,6 +88,8 @@ export function ActionItemCard({
   conflict,
   onPush,
   onOpenTerminal,
+  onRemove,
+  removing,
 }: {
   item: ActionItem;
   pushing: boolean;
@@ -99,6 +102,9 @@ export function ActionItemCard({
   /** Opens the embedded terminal panel with this item's prompt pre-filled, running the given agent CLI.
    * `startRef`, when passed, resumes that existing branch instead of starting a new one. */
   onOpenTerminal: (prompt: string, title: string, agentId: string, startRef?: string) => void;
+  /** Permanently deletes this action item. Omit to hide the Remove button. */
+  onRemove?: () => void;
+  removing?: boolean;
 }) {
   const canPush = item.status === "suggested" || item.status === "approved";
   const isSynced = item.status === "synced" || item.status === "shipped";
@@ -244,6 +250,23 @@ export function ActionItemCard({
             )}
             <ExternalLink className="size-3" />
           </a>
+        )}
+
+        {onRemove && (
+          <button
+            onClick={() => {
+              if (window.confirm(`Remove "${item.title}"? This can't be undone.`)) onRemove();
+            }}
+            disabled={removing}
+            title="Permanently remove this item"
+            className={cn(
+              "ml-auto inline-flex items-center gap-1 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:border-accent-orange/40 hover:text-accent-orange",
+              removing && "cursor-not-allowed opacity-50",
+            )}
+          >
+            <Trash2 className={cn("size-3", removing && "animate-pulse")} />
+            {removing ? "Removing…" : "Remove"}
+          </button>
         )}
       </div>
     </div>

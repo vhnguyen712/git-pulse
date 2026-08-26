@@ -203,3 +203,28 @@
 .pulse-dot {
   animation: pulse-dot 2s ease-in-out infinite;
 }
+
+/* Scrollbar that stays invisible until the container is hovered/scrolled —
+   avoids permanent chrome-gray scrollbar tracks cluttering dense layouts
+   like the Suggestions board's columns. */
+.scroll-fade {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.scroll-fade:hover {
+  scrollbar-color: var(--outline-variant) transparent;
+}
+.scroll-fade::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroll-fade::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-fade::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 9999px;
+}
+.scroll-fade:hover::-webkit-scrollbar-thumb {
+  background-color: var(--outline-variant);
+}
