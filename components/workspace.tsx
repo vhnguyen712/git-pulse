@@ -353,7 +353,7 @@ export function Workspace({
       )}
 
       {/* Tabbed workspace */}
-      <div className="flex items-center gap-1 border-b border-outline-variant bg-surface-container-low px-4 sm:px-6">
+      <div className="scroll-fade flex items-center gap-1 overflow-x-auto border-b border-outline-variant bg-surface-container-low px-4 sm:px-6">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -363,8 +363,8 @@ export function Workspace({
               onClick={() => setActiveTab(tab.key)}
               className={
                 isActive
-                  ? "flex items-center gap-1.5 border-b-2 border-primary px-3 py-2.5 text-sm font-medium text-on-surface"
-                  : "flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-sm text-on-surface-variant hover:text-on-surface"
+                  ? "flex shrink-0 items-center gap-1.5 border-b-2 border-primary px-3 py-2.5 text-sm font-medium text-on-surface"
+                  : "flex shrink-0 items-center gap-1.5 border-b-2 border-transparent px-3 py-2.5 text-sm text-on-surface-variant hover:text-on-surface"
               }
             >
               <Icon className="size-4" />
@@ -383,23 +383,36 @@ export function Workspace({
           {commits.length === 0 ? (
             <EmptyNote text="No commits found." />
           ) : (
-            <ul className="flex flex-col gap-1">
-              {commits.map((c) => (
-                <li
-                  key={c.sha}
-                  className="rounded-md px-2 py-1.5 text-xs hover:bg-white/[0.03]"
-                >
-                  <div className="flex items-baseline gap-2">
-                    <MonoText size="sm" muted>
-                      {shortSha(c.sha)}
-                    </MonoText>
-                    <span className="truncate text-on-surface">
-                      {c.message.split("\n")[0]}
-                    </span>
-                  </div>
-                  <div className="pl-0 text-[11px] text-on-surface-variant">
-                    {c.authorName ?? "unknown"} · {timeAgo(c.authorDate)}
-                  </div>
+            <ul className="flex flex-col gap-3">
+              {groupCommitsByDay(commits).map((group) => (
+                <li key={group.key}>
+                  <p className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-on-surface-variant">
+                    {group.label}
+                  </p>
+                  <ul className="flex flex-col gap-1">
+                    {group.commits.map((c) => (
+                      <li key={c.sha}>
+                        <a
+                          href={`https://github.com/${owner}/${repoName}/commit/${c.sha}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded-md px-2 py-1.5 text-xs hover:bg-white/[0.03]"
+                        >
+                          <div className="flex items-baseline gap-2">
+                            <MonoText size="sm" muted>
+                              {shortSha(c.sha)}
+                            </MonoText>
+                            <span className="truncate text-on-surface">
+                              {c.message.split("\n")[0]}
+                            </span>
+                          </div>
+                          <div className="pl-0 text-[11px] text-on-surface-variant">
+                            {c.authorName ?? "unknown"} · {timeAgo(c.authorDate)}
+                          </div>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
                 </li>
               ))}
             </ul>
@@ -415,7 +428,7 @@ export function Workspace({
           ) : (
             <>
               {items.length > 0 && (
-                <div className="flex flex-col gap-3 rounded-md border border-outline-variant p-3">
+                <div className="flex flex-col gap-3 rounded-lg border border-outline-variant p-3">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
                     Action-item funnel
                   </p>
@@ -529,7 +542,7 @@ export function Workspace({
                       {pr.title}
                       <ExternalLink className="size-3 shrink-0" />
                     </a>
-                    <StatusBadge tone={pr.isDraft ? "pending" : "synced"}>
+                    <StatusBadge tone={pr.isDraft ? "pending" : "feature"}>
                       {pr.isDraft ? "draft" : "open"}
                     </StatusBadge>
                   </div>
@@ -596,6 +609,32 @@ export function Workspace({
   );
 }
 
+/** Buckets commits (assumed already ordered) into consecutive same-day runs, for the Git Activity list's date headers. */
+function groupCommitsByDay(
+  commits: CompareCommit[],
+): { key: string; label: string; commits: CompareCommit[] }[] {
+  const groups: { key: string; label: string; commits: CompareCommit[] }[] = [];
+  for (const c of commits) {
+    const key = c.authorDate ? c.authorDate.slice(0, 10) : "unknown";
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.commits.push(c);
+    } else {
+      groups.push({
+        key,
+        label: c.authorDate
+          ? new Date(c.authorDate).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            })
+          : "Unknown date",
+        commits: [c],
+      });
+    }
+  }
+  return groups;
+}
+
 const ACTIVITY_DAYS = 14;
 
 /** Bucket commits into the last N calendar days for the Git Activity bar chart. */
@@ -627,7 +666,7 @@ function commitsByDay(commits: CompareCommit[]): BarDatum[] {
 function SummaryBlock({ title, lines }: { title: string; lines: string[] }) {
   if (lines.length === 0) return null;
   return (
-    <div>
+    <div className="border-l-2 border-outline-variant pl-3">
       <h3 className="mb-1 text-xs font-bold uppercase tracking-wide text-on-surface-variant">
         {title}
       </h3>
