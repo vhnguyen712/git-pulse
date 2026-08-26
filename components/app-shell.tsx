@@ -1,9 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GitBranch, LayoutGrid, Menu, Settings } from "lucide-react";
+import {
+  GitBranch,
+  LayoutGrid,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -45,7 +52,8 @@ function NavLinks({ collapsed }: { collapsed?: boolean }) {
             key={href}
             href={href}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+              "flex items-center gap-2 rounded-md py-1.5 text-sm transition-colors",
+              collapsed ? "justify-center px-0" : "px-2",
               active
                 ? "bg-surface-container text-on-surface"
                 : "text-on-surface-variant hover:bg-white/5 hover:text-on-surface",
@@ -61,25 +69,51 @@ function NavLinks({ collapsed }: { collapsed?: boolean }) {
   );
 }
 
+const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+    if (stored !== null) setCollapsed(stored === "true");
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+  }, [collapsed]);
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-surface">
-      {/* Desktop / tablet sidebar — icon rail 768–1280px, full sidebar >1280px */}
-      <aside className="hidden shrink-0 overflow-y-auto border-r border-outline-variant bg-surface-container-low md:flex md:w-14 md:flex-col md:gap-4 md:p-2 xl:w-56 xl:p-3">
-        <div className="xl:hidden">
-          <Brand collapsed />
+      {/* Desktop / tablet sidebar — user-toggleable collapse */}
+      <aside
+        className={cn(
+          "hidden shrink-0 flex-col gap-4 overflow-y-auto border-r border-outline-variant bg-surface-container-low p-2 transition-[width] duration-200 md:flex",
+          collapsed ? "md:w-14" : "md:w-56 md:p-3",
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center gap-2",
+            collapsed ? "flex-col" : "justify-between",
+          )}
+        >
+          <Brand collapsed={collapsed} />
+          <button
+            type="button"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => setCollapsed((v) => !v)}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-on-surface-variant hover:bg-white/5 hover:text-on-surface"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="size-4" />
+            ) : (
+              <PanelLeftClose className="size-4" />
+            )}
+          </button>
         </div>
-        <div className="hidden xl:block">
-          <Brand />
-        </div>
-        <div className="xl:hidden">
-          <NavLinks collapsed />
-        </div>
-        <div className="hidden xl:block">
-          <NavLinks />
-        </div>
+        <NavLinks collapsed={collapsed} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
