@@ -88,11 +88,16 @@ export async function getWorkspaceData(
     });
     if (summaryRow) {
       latestSummary = JSON.parse(summaryRow.summaryJson) as Analysis;
-      items = await db.query.actionItems.findMany({
-        where: (a, { eq }) => eq(a.summaryId, summaryRow.id),
-        orderBy: (a, { desc }) => desc(a.createdAt),
-      });
     }
+    // Load every action item for the project, not just the latest summary's —
+    // suggestions/ideas from earlier syncs are otherwise hidden on reload even
+    // though they're never deleted (see lib/sync.ts, which returns all items
+    // right after a sync). `latestSummary` above still drives the "AI Core
+    // Insights" summary prose, which is meant to reflect only the newest sync.
+    items = await db.query.actionItems.findMany({
+      where: (a, { eq }) => eq(a.projectId, project.id),
+      orderBy: (a, { desc }) => desc(a.createdAt),
+    });
 
     try {
       prCandidates = await getPrCandidates(project, pulls, items);
