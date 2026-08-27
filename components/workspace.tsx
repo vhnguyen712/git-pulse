@@ -16,6 +16,7 @@ import {
   History,
   Layers,
   Lightbulb,
+  ListChecks,
   RefreshCw,
   ScrollText,
   Sparkles,
@@ -81,6 +82,10 @@ export function Workspace({
   const [pushingId, setPushingId] = useState<string | null>(null);
   const [pushErrors, setPushErrors] = useState<Record<string, string>>({});
   const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const [scanning, setScanning] = useState(false);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const [pulls, setPulls] = useState<PullRequestSummary[]>(initial.pulls);
   const [prCandidates, setPrCandidates] = useState<PrCandidate[]>(initial.prCandidates);
@@ -196,6 +201,41 @@ export function Workspace({
     }
   }
 
+  async function handleScanTodos() {
+    setScanning(true);
+    setScanNotice(null);
+    setScanError(null);
+    try {
+      const res = await fetch("/api/todo-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner, repo: repoName, branch }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setScanError(
+          res.status === 429
+            ? "GitHub rate limit reached. Try again shortly."
+            : body.detail
+              ? `${body.error ?? "Scan failed."} ${body.detail}`
+              : body.error ?? "Scan failed.",
+        );
+        return;
+      }
+      setItems(body.items);
+      setScanNotice(
+        body.added > 0
+          ? `Added ${body.added} new item${body.added === 1 ? "" : "s"} (found ${body.found} marker${body.found === 1 ? "" : "s"} across ${body.scanned} files${body.truncated ? ", scan truncated" : ""}).`
+          : `No new markers (found ${body.found} across ${body.scanned} files — all already tracked).`,
+      );
+      startRefresh(() => router.refresh());
+    } catch {
+      setScanError("Network error while scanning.");
+    } finally {
+      setScanning(false);
+    }
+  }
+
   async function handleRefreshPulls() {
     setPullsRefreshing(true);
     setPullsError(null);
@@ -246,6 +286,7 @@ export function Workspace({
 
   const nextSteps = items.filter((i) => i.source === "next_step");
   const brainstorm = items.filter((i) => i.source === "brainstorm");
+  const todos = items.filter((i) => i.source === "todo");
   const hasAnalysis = analysis !== null;
 
   const commitActivity = commitsByDay(commits);
@@ -506,31 +547,84 @@ export function Workspace({
         </section>
 
         {/* Idea & Brainstorm Lab */}
-        <section className={activeTab === "brainstorm" ? "flex flex-col gap-3 p-4 sm:p-6" : "hidden"}>
-          {syncing ? (
-            <InsightsSkeleton compact />
-          ) : !hasAnalysis ? (
-            <EmptyNote text="Nothing analyzed yet. Click Sync now to generate ideas." />
-          ) : brainstorm.length === 0 ? (
-            <EmptyNote text="No ideas suggested this round." />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {brainstorm.map((item) => (
-                <ActionItemCard
-                  key={item.id}
-                  item={item}
-                  pushing={pushingId === item.id}
-                  error={pushErrors[item.id]}
-                  baseBranch={project?.defaultBranch ?? branch}
-                  conflict={conflictsByItemId.get(item.id)}
-                  onPush={() => handlePush(item)}
-                  onOpenTerminal={handleOpenTerminal}
-                  onRemove={() => handleRemove(item)}
-                  removing={removingId === item.id}
-                />
-              ))}
+        <section className={activeTab === "brainstorm" ? "flex flex-col gap-5 p-4 sm:p-6" : "hidden"}>
+          {/* AI-suggested ideas */}
+          <div className="flex flex-col gap-3">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
+              AI-suggested ideas
+            </p>
+            {syncing ? (
+              <InsightsSkeleton compact />
+            ) : !hasAnalysis ? (
+              <EmptyNote text="Nothing analyzed yet. Click Sync now to generate ideas." />
+            ) : brainstorm.length === 0 ? (
+              <EmptyNote text="No ideas suggested this round." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {brainstorm.map((item) => (
+                  <ActionItemCard
+                    key={item.id}
+                    item={item}
+                    pushing={pushingId === item.id}
+                    error={pushErrors[item.id]}
+                    baseBranch={project?.defaultBranch ?? branch}
+                    conflict={conflictsByItemId.get(item.id)}
+                    onPush={() => handlePush(item)}
+                    onOpenTerminal={handleOpenTerminal}
+                    onRemove={() => handleRemove(item)}
+                    removing={removingId === item.id}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* From your code — inline TODO/FIXME markers */}
+          <div className="flex flex-col gap-3 border-t border-outline-variant pt-5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
+                  From your code
+                </p>
+                <p className="text-[11px] text-on-surface-variant">
+                  Inline TODO / FIXME / HACK / XXX markers, pulled straight from the repo.
+                </p>
+              </div>
+              <button
+                onClick={handleScanTodos}
+                disabled={scanning}
+                title="Scan the repo's source for inline TODO/FIXME markers"
+                className="flex shrink-0 items-center gap-1.5 rounded-md border border-outline-variant px-2.5 py-1.5 text-xs text-on-surface transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ListChecks className={scanning ? "size-3.5 animate-pulse" : "size-3.5"} />
+                {scanning ? "Scanning…" : "Scan for TODOs"}
+              </button>
             </div>
-          )}
+
+            {scanNotice && <p className="text-[11px] text-on-surface-variant">{scanNotice}</p>}
+            {scanError && <p className="text-xs text-accent-orange">{scanError}</p>}
+
+            {todos.length === 0 ? (
+              <EmptyNote text="No TODO markers tracked yet. Click Scan for TODOs to pull them in." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {todos.map((item) => (
+                  <ActionItemCard
+                    key={item.id}
+                    item={item}
+                    pushing={pushingId === item.id}
+                    error={pushErrors[item.id]}
+                    baseBranch={project?.defaultBranch ?? branch}
+                    conflict={conflictsByItemId.get(item.id)}
+                    onPush={() => handlePush(item)}
+                    onOpenTerminal={handleOpenTerminal}
+                    onRemove={() => handleRemove(item)}
+                    removing={removingId === item.id}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Pull Requests */}

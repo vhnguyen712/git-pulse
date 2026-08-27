@@ -118,6 +118,15 @@ export const createIssueRequestSchema = z.object({
 });
 export type CreateIssueRequest = z.infer<typeof createIssueRequestSchema>;
 
+/** Body for POST /api/todo-scan — scans a pinned project's repo for inline TODO/FIXME markers. */
+export const todoScanRequestSchema = z.object({
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+  /** Optional branch to scan; when omitted the project's stored/default branch is used. */
+  branch: z.string().min(1).optional(),
+});
+export type TodoScanRequest = z.infer<typeof todoScanRequestSchema>;
+
 /** Body for POST /api/pulls — opens a draft PR for the item's gitpulse/<id> branch. */
 export const openPullRequestRequestSchema = z.object({
   actionItemId: z.string().min(1),

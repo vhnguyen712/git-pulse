@@ -92,8 +92,13 @@ export const actionItems = sqliteTable("action_items", {
   summaryId: text("summary_id").references(() => aiSummaries.id, {
     onDelete: "set null",
   }),
-  /** Which LLM output block this item came from. */
-  source: text("source", { enum: ["next_step", "brainstorm"] }).notNull(),
+  /**
+   * Where this item came from: an LLM analysis block ("next_step" /
+   * "brainstorm"), or the inline-comment scanner ("todo", see lib/todo-scan.ts).
+   * The column is plain TEXT with no DB-level check, so this enum is a
+   * TypeScript contract only — adding a value needs no migration.
+   */
+  source: text("source", { enum: ["next_step", "brainstorm", "todo"] }).notNull(),
   title: text("title").notNull(),
   description: text("description"),
   category: text("category"),
