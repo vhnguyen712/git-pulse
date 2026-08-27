@@ -74,7 +74,7 @@ describe("analyze retry/degradation", () => {
       .mockRejectedValueOnce(new FakeRateLimitError())
       .mockResolvedValueOnce(completion(VALID_ANALYSIS_JSON));
 
-    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0 });
+    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0, commitsCapped: false });
     await vi.runAllTimersAsync();
     const result = await promise;
 
@@ -85,7 +85,7 @@ describe("analyze retry/degradation", () => {
   it("throws LlmUnavailableError after exhausting retries on repeated connection errors", async () => {
     createMock.mockRejectedValue(new FakeAPIConnectionError());
 
-    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0 });
+    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0, commitsCapped: false });
     const expectation = expect(promise).rejects.toBeInstanceOf(LlmUnavailableError);
     await vi.runAllTimersAsync();
     await expectation;
@@ -96,7 +96,7 @@ describe("analyze retry/degradation", () => {
   it("does not retry on a non-retryable error", async () => {
     createMock.mockRejectedValue(new FakeAPIError(400, "bad request"));
 
-    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0 });
+    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0, commitsCapped: false });
     const expectation = expect(promise).rejects.not.toBeInstanceOf(LlmUnavailableError);
     await vi.runAllTimersAsync();
     await expectation;
@@ -113,7 +113,7 @@ describe("analyze retry/degradation", () => {
       .mockResolvedValueOnce(completion(invalidJson))
       .mockResolvedValueOnce(completion(VALID_ANALYSIS_JSON));
 
-    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0 });
+    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0, commitsCapped: false });
     await vi.runAllTimersAsync();
     const result = await promise;
 
