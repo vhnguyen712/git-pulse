@@ -5,6 +5,7 @@ import { ArrowRight, RefreshCw } from "lucide-react";
 import type { RepoCardData } from "@/lib/repos";
 import { timeAgo } from "@/lib/format";
 import { StatusBadge } from "@/components/status-badge";
+import { HealthBadge } from "@/components/health-badge";
 import { PulseIndicator } from "@/components/pulse-indicator";
 import { BranchSelect } from "@/components/branch-select";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ export function RepoCard({
           </h3>
         </Link>
         <div className="flex shrink-0 items-center gap-1.5">
+          {repo.health && <HealthBadge health={repo.health} className="shrink-0" />}
           {repo.newItemCount > 0 && (
             <StatusBadge tone="synced" className="shrink-0">
               {repo.newItemCount} new
