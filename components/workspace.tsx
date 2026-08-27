@@ -810,14 +810,14 @@ function EmptyNote({ text }: { text: string }) {
 type OverviewSectionId = "context" | "objective" | "features" | "architecture" | "stack";
 type OverviewIcon = React.ComponentType<{ className?: string }>;
 
-/** Cycling accent tiles for numbered feature cards — accent-as-badge, used sparingly per the design system. */
-const OVERVIEW_ACCENTS = [
-  "text-accent-blue bg-accent-blue-bg",
-  "text-accent-purple bg-accent-purple-bg",
-  "text-accent-green bg-accent-green-bg",
-  "text-accent-amber bg-accent-amber-bg",
-  "text-accent-orange bg-accent-orange-bg",
-] as const;
+/**
+ * Numbered feature tiles use a single restrained accent rather than cycling
+ * five. The design system reserves the semantic accents for status/badges,
+ * not decoration; a rotating rainbow reads as decorative. Purple matches the
+ * Project Summary tab's own identity (the hero mark and the architecture
+ * component tiles below), so the whole tab stays cohesive.
+ */
+const OVERVIEW_TILE_ACCENT = "text-accent-purple bg-accent-purple-bg";
 
 /** Serializes the overview to Markdown for the "Copy as Markdown" action — the readme it reads like. */
 function overviewToMarkdown(overview: ProjectOverview, projectName: string): string {
@@ -1045,7 +1045,7 @@ function ProjectOverviewView({
                   className="flex gap-3 rounded-lg border border-outline-variant p-3 transition-colors hover:border-outline hover:bg-white/[0.03]"
                 >
                   <span
-                    className={`flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-bold tabular-nums ${OVERVIEW_ACCENTS[i % OVERVIEW_ACCENTS.length]}`}
+                    className={`flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-bold tabular-nums ${OVERVIEW_TILE_ACCENT}`}
                   >
                     {String(i + 1).padStart(2, "0")}
                   </span>

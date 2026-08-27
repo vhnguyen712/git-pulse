@@ -109,6 +109,10 @@ export function ActionItemCard({
   const canPush = item.status === "suggested" || item.status === "approved";
   const isSynced = item.status === "synced" || item.status === "shipped";
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Two-step inline confirm for the destructive Remove, replacing a native
+  // window.confirm() — keeps the guard but stays inside the app's own visual
+  // language instead of popping an OS dialog.
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-outline-variant bg-surface p-3">
@@ -252,22 +256,47 @@ export function ActionItemCard({
           </a>
         )}
 
-        {onRemove && (
-          <button
-            onClick={() => {
-              if (window.confirm(`Remove "${item.title}"? This can't be undone.`)) onRemove();
-            }}
-            disabled={removing}
-            title="Permanently remove this item"
-            className={cn(
-              "ml-auto inline-flex items-center gap-1 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:border-accent-orange/40 hover:text-accent-orange",
-              removing && "cursor-not-allowed opacity-50",
-            )}
-          >
-            <Trash2 className={cn("size-3", removing && "animate-pulse")} />
-            {removing ? "Removing…" : "Remove"}
-          </button>
-        )}
+        {onRemove &&
+          (confirmingRemove ? (
+            <div className="ml-auto inline-flex items-center gap-1.5">
+              <span className="text-[11px] text-on-surface-variant">Remove permanently?</span>
+              <button
+                onClick={() => {
+                  setConfirmingRemove(false);
+                  onRemove();
+                }}
+                disabled={removing}
+                title="Permanently remove this item — this can't be undone"
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md border border-accent-orange/40 bg-accent-orange-bg px-2 py-1 text-xs font-medium text-accent-orange hover:bg-accent-orange/15",
+                  removing && "cursor-not-allowed opacity-50",
+                )}
+              >
+                <Trash2 className={cn("size-3", removing && "animate-pulse")} />
+                {removing ? "Removing…" : "Confirm"}
+              </button>
+              <button
+                onClick={() => setConfirmingRemove(false)}
+                disabled={removing}
+                className="inline-flex items-center rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:bg-white/5 hover:text-on-surface"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmingRemove(true)}
+              disabled={removing}
+              title="Permanently remove this item"
+              className={cn(
+                "ml-auto inline-flex items-center gap-1 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:border-accent-orange/40 hover:text-accent-orange",
+                removing && "cursor-not-allowed opacity-50",
+              )}
+            >
+              <Trash2 className={cn("size-3", removing && "animate-pulse")} />
+              Remove
+            </button>
+          ))}
       </div>
     </div>
   );
