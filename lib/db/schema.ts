@@ -55,6 +55,34 @@ export const aiSummaries = sqliteTable(
   (table) => [unique().on(table.projectId, table.baseSha, table.headSha)],
 );
 
+/**
+ * README-style living overview for a project, LLM-synthesized from the repo's
+ * README plus the achievements/fixes/architecture accumulated across all syncs.
+ * One row per project (overwritten on each regeneration) — a current-state
+ * document, not a per-range cache like ai_summaries.
+ */
+export const projectOverviews = sqliteTable(
+  "project_overviews",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** Validated ProjectOverview JSON: { tagline, context, objective, highlighted_features[], architecture, tech_stack[] } */
+    overviewJson: text("overview_json").notNull(),
+    /** Head sha this overview was synthesized at — lets a sync tell if it's stale. */
+    basedOnHeadSha: text("based_on_head_sha"),
+    model: text("model"),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    totalTokens: integer("total_tokens"),
+    updatedAt: integer("updated_at")
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [unique().on(table.projectId)],
+);
+
 /** Individual next-step / brainstorm items surfaced from an AI summary. */
 export const actionItems = sqliteTable("action_items", {
   id: text("id").primaryKey(),
@@ -129,5 +157,7 @@ export type AiSummary = typeof aiSummaries.$inferSelect;
 export type NewAiSummary = typeof aiSummaries.$inferInsert;
 export type ActionItem = typeof actionItems.$inferSelect;
 export type NewActionItem = typeof actionItems.$inferInsert;
+export type ProjectOverviewRow = typeof projectOverviews.$inferSelect;
+export type NewProjectOverviewRow = typeof projectOverviews.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
 export type NewSettings = typeof settings.$inferInsert;

@@ -38,6 +38,39 @@ describe("analysisSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("normalizes known synonyms for next_steps[].type", () => {
+    const result = analysisSchema.safeParse({
+      summary: {},
+      next_steps: [
+        { title: "x", description: "y", priority: "high", type: "enhancement" },
+        { title: "x", description: "y", priority: "high", type: "Chore" },
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.next_steps.map((s) => s.type)).toEqual(["feature", "refactor"]);
+    }
+  });
+
+  it("normalizes known synonyms for brainstorm_ideas[].category", () => {
+    const result = analysisSchema.safeParse({
+      summary: {},
+      brainstorm_ideas: [{ title: "x", category: "optimization", rationale: "…" }],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.brainstorm_ideas[0].category).toBe("performance");
+    }
+  });
+
+  it("still rejects a type/category with no known synonym mapping", () => {
+    const result = analysisSchema.safeParse({
+      summary: {},
+      next_steps: [{ title: "x", description: "y", priority: "high", type: "widget" }],
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("syncRequestSchema", () => {

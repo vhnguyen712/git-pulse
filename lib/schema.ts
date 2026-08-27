@@ -1,5 +1,45 @@
 import { z } from "zod";
 
+// Models occasionally reach for a synonym instead of the exact enum value
+// (e.g. "enhancement" or "chore" for next_steps[].type) despite the schema
+// spelled out in the prompt. Normalizing known synonyms before validation
+// means one stray label doesn't sink the whole analysis — a value with no
+// known mapping still falls through unchanged and fails validation as before.
+const NEXT_STEP_TYPE_ALIASES: Record<string, "feature" | "bug" | "refactor"> = {
+  enhancement: "feature",
+  improvement: "feature",
+  feat: "feature",
+  fix: "bug",
+  bugfix: "bug",
+  hotfix: "bug",
+  refactoring: "refactor",
+  chore: "refactor",
+  cleanup: "refactor",
+  maintenance: "refactor",
+  docs: "refactor",
+  documentation: "refactor",
+  test: "refactor",
+  testing: "refactor",
+  performance: "refactor",
+};
+
+const BRAINSTORM_CATEGORY_ALIASES: Record<string, "architecture" | "enhancement" | "performance"> = {
+  design: "architecture",
+  structure: "architecture",
+  feature: "enhancement",
+  improvement: "enhancement",
+  optimization: "performance",
+  speed: "performance",
+};
+
+function normalizeEnumValue(aliases: Record<string, string>) {
+  return (val: unknown) => {
+    if (typeof val !== "string") return val;
+    const normalized = val.trim().toLowerCase();
+    return aliases[normalized] ?? val;
+  };
+}
+
 /** Structured output contract for a single LLM analysis call (spec §5). */
 export const analysisSchema = z.object({
   summary: z.object({
@@ -13,7 +53,10 @@ export const analysisSchema = z.object({
         title: z.string(),
         description: z.string(),
         priority: z.enum(["high", "medium", "low"]),
-        type: z.enum(["feature", "bug", "refactor"]),
+        type: z.preprocess(
+          normalizeEnumValue(NEXT_STEP_TYPE_ALIASES),
+          z.enum(["feature", "bug", "refactor"]),
+        ),
       }),
     )
     .default([]),
@@ -21,7 +64,10 @@ export const analysisSchema = z.object({
     .array(
       z.object({
         title: z.string(),
-        category: z.enum(["architecture", "enhancement", "performance"]),
+        category: z.preprocess(
+          normalizeEnumValue(BRAINSTORM_CATEGORY_ALIASES),
+          z.enum(["architecture", "enhancement", "performance"]),
+        ),
         rationale: z.string(),
       }),
     )
@@ -31,6 +77,31 @@ export const analysisSchema = z.object({
 export type Analysis = z.infer<typeof analysisSchema>;
 export type NextStep = Analysis["next_steps"][number];
 export type BrainstormIdea = Analysis["brainstorm_ideas"][number];
+
+/** README-style living overview for a project — structured output contract for lib/llm.ts#synthesizeOverview. */
+export const projectOverviewSchema = z.object({
+  /** One-line description, e.g. what you'd put right under the project name. */
+  tagline: z.string().default(""),
+  /** What the project is / background — prose, a paragraph or two. */
+  context: z.string().default(""),
+  /** Goals / purpose — prose, a paragraph or two. */
+  objective: z.string().default(""),
+  highlighted_features: z
+    .array(z.object({ name: z.string(), description: z.string() }))
+    .default([]),
+  architecture: z
+    .object({
+      /** Prose explaining the overall design. */
+      overview: z.string().default(""),
+      components: z
+        .array(z.object({ name: z.string(), description: z.string() }))
+        .default([]),
+    })
+    .default({ overview: "", components: [] }),
+  tech_stack: z.array(z.string()).default([]),
+});
+
+export type ProjectOverview = z.infer<typeof projectOverviewSchema>;
 
 /** Body for POST /api/sync */
 export const syncRequestSchema = z.object({

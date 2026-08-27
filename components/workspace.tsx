@@ -1,22 +1,31 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  BookOpen,
+  Boxes,
+  Check,
+  Component,
+  Copy,
   ExternalLink,
   GitCommitHorizontal,
   GitPullRequest,
   History,
+  Layers,
   Lightbulb,
   RefreshCw,
+  ScrollText,
   Sparkles,
+  Target,
+  Zap,
 } from "lucide-react";
 import type { WorkspaceData } from "@/lib/workspace";
 import type { PrCandidate, ConflictInfo } from "@/lib/pulls";
 import type { ActionItem, Project } from "@/lib/db/schema";
-import type { Analysis } from "@/lib/schema";
+import type { Analysis, ProjectOverview } from "@/lib/schema";
 import { MonoText, shortSha } from "@/components/mono-text";
 import { PulseIndicator } from "@/components/pulse-indicator";
 import { BranchSelect } from "@/components/branch-select";
@@ -36,11 +45,12 @@ interface SyncErrorInfo {
   resetAt?: number;
 }
 
-type TabKey = "git" | "insights" | "brainstorm" | "pulls" | "history";
+type TabKey = "git" | "insights" | "summary" | "brainstorm" | "pulls" | "history";
 
 const TABS: { key: TabKey; title: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "git", title: "Git Activity", icon: GitCommitHorizontal },
   { key: "insights", title: "AI Core Insights", icon: Sparkles },
+  { key: "summary", title: "Project Summary", icon: ScrollText },
   { key: "brainstorm", title: "Idea & Brainstorm Lab", icon: Lightbulb },
   { key: "pulls", title: "Pull Requests", icon: GitPullRequest },
   { key: "history", title: "History", icon: History },
@@ -477,6 +487,24 @@ export function Workspace({
           )}
         </section>
 
+        {/* Project Summary — README-style living overview, LLM-synthesized fresh on each sync */}
+        <section className={activeTab === "summary" ? "flex flex-col" : "hidden"}>
+          {syncing ? (
+            <div className="p-4 sm:p-6">
+              <InsightsSkeleton />
+            </div>
+          ) : !initial.projectOverview ? (
+            <div className="p-4 sm:p-6">
+              <EmptyNote text="Sync now to generate a project overview." />
+            </div>
+          ) : (
+            <ProjectOverviewView
+              overview={initial.projectOverview}
+              projectName={`${owner}/${repoName}`}
+            />
+          )}
+        </section>
+
         {/* Idea & Brainstorm Lab */}
         <section className={activeTab === "brainstorm" ? "flex flex-col gap-3 p-4 sm:p-6" : "hidden"}>
           {syncing ? (
@@ -683,6 +711,392 @@ function SummaryBlock({ title, lines }: { title: string; lines: string[] }) {
 
 function EmptyNote({ text }: { text: string }) {
   return <p className="text-xs text-on-surface-variant">{text}</p>;
+}
+
+type OverviewSectionId = "context" | "objective" | "features" | "architecture" | "stack";
+type OverviewIcon = React.ComponentType<{ className?: string }>;
+
+/** Cycling accent tiles for numbered feature cards — accent-as-badge, used sparingly per the design system. */
+const OVERVIEW_ACCENTS = [
+  "text-accent-blue bg-accent-blue-bg",
+  "text-accent-purple bg-accent-purple-bg",
+  "text-accent-green bg-accent-green-bg",
+  "text-accent-amber bg-accent-amber-bg",
+  "text-accent-orange bg-accent-orange-bg",
+] as const;
+
+/** Serializes the overview to Markdown for the "Copy as Markdown" action — the readme it reads like. */
+function overviewToMarkdown(overview: ProjectOverview, projectName: string): string {
+  const lines: string[] = [`# ${projectName}`];
+  if (overview.tagline) lines.push("", `> ${overview.tagline}`);
+  if (overview.context) lines.push("", "## Context", "", overview.context);
+  if (overview.objective) lines.push("", "## Objective", "", overview.objective);
+  if (overview.highlighted_features.length) {
+    lines.push("", "## Highlighted features", "");
+    for (const f of overview.highlighted_features) lines.push(`- **${f.name}** — ${f.description}`);
+  }
+  if (overview.architecture.overview || overview.architecture.components.length) {
+    lines.push("", "## Architecture");
+    if (overview.architecture.overview) lines.push("", overview.architecture.overview);
+    if (overview.architecture.components.length) {
+      lines.push("");
+      for (const c of overview.architecture.components) lines.push(`- **${c.name}** — ${c.description}`);
+    }
+  }
+  if (overview.tech_stack.length) {
+    lines.push("", "## Tech stack", "", overview.tech_stack.map((t) => `\`${t}\``).join(" · "));
+  }
+  return lines.join("\n") + "\n";
+}
+
+/** README-style rendering of the LLM-synthesized project overview (Project Summary tab). */
+function ProjectOverviewView({
+  overview,
+  projectName,
+}: {
+  overview: ProjectOverview;
+  projectName: string;
+}) {
+  const hasFeatures = overview.highlighted_features.length > 0;
+  const hasComponents = overview.architecture.components.length > 0;
+  const hasArchitecture = overview.architecture.overview.length > 0 || hasComponents;
+
+  // The sections that actually have content — drives both the sticky in-page
+  // nav and the scroll-spy below.
+  const sections = useMemo(() => {
+    const s: { id: OverviewSectionId; label: string; icon: OverviewIcon }[] = [];
+    if (overview.context) s.push({ id: "context", label: "Context", icon: BookOpen });
+    if (overview.objective) s.push({ id: "objective", label: "Objective", icon: Target });
+    if (hasFeatures) s.push({ id: "features", label: "Features", icon: Zap });
+    if (hasArchitecture) s.push({ id: "architecture", label: "Architecture", icon: Boxes });
+    if (overview.tech_stack.length) s.push({ id: "stack", label: "Tech stack", icon: Layers });
+    return s;
+  }, [overview, hasFeatures, hasArchitecture]);
+
+  const [activeId, setActiveId] = useState<OverviewSectionId | null>(sections[0]?.id ?? null);
+  // Trailing spacer so the last sections can scroll their top up to the nav
+  // line — without it there's no room below them and their nav links can't
+  // become active (see scroll-spy below).
+  const [spacerHeight, setSpacerHeight] = useState(0);
+  const refs = useRef<Partial<Record<OverviewSectionId, HTMLElement | null>>>({});
+  const rootRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLElement | null>(null);
+
+  // The sticky nav's height — offset so a section counts as "active" (and is
+  // scrolled to) just below the nav rather than under it.
+  const NAV_OFFSET = 88;
+
+  // Position-based scroll-spy: the active section is the last one whose top has
+  // crossed the nav line. The spacer above guarantees every section — including
+  // the final ones — can reach that line, so clicking any nav link works in
+  // both directions.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    // Nearest scrollable ancestor (the workspace's overflow-y-auto pane).
+    let sc: HTMLElement | null = root.parentElement;
+    while (sc) {
+      const oy = getComputedStyle(sc).overflowY;
+      if (oy === "auto" || oy === "scroll") break;
+      sc = sc.parentElement;
+    }
+    scrollerRef.current = sc;
+    if (!sc) return;
+
+    // Enough trailing space for the last section's top to reach the nav line.
+    const recomputeSpacer = () => {
+      if (sections.length <= 1) {
+        setSpacerHeight(0);
+        return;
+      }
+      const lastEl = refs.current[sections[sections.length - 1].id];
+      if (!lastEl) return;
+      setSpacerHeight(Math.max(0, sc!.clientHeight - NAV_OFFSET - lastEl.offsetHeight));
+    };
+
+    const onScroll = () => {
+      const scRect = sc!.getBoundingClientRect();
+      let current = sections[0]?.id ?? null;
+      for (const s of sections) {
+        const el = refs.current[s.id];
+        if (!el) continue;
+        const top = el.getBoundingClientRect().top - scRect.top;
+        if (top <= NAV_OFFSET + 4) current = s.id;
+      }
+      if (current) setActiveId(current);
+    };
+
+    recomputeSpacer();
+    onScroll();
+    sc.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", recomputeSpacer);
+    return () => {
+      sc.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", recomputeSpacer);
+    };
+  }, [sections]);
+
+  const scrollToSection = (id: OverviewSectionId) => {
+    const el = refs.current[id];
+    const sc = scrollerRef.current;
+    if (!el) return;
+    if (sc) {
+      const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+      sc.scrollTo({ top: Math.max(0, top - NAV_OFFSET), behavior: "smooth" });
+    } else {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  const markdown = overviewToMarkdown(overview, projectName);
+
+  return (
+    <div ref={rootRef}>
+      {/* Sticky in-page nav — jump between sections, current one highlighted */}
+      {sections.length > 1 && (
+        <div className="scroll-fade sticky top-0 z-10 flex items-center gap-1 overflow-x-auto border-b border-outline-variant bg-surface-container-low px-4 py-2 sm:px-6">
+          {sections.map((s) => {
+            const Icon = s.icon;
+            const active = activeId === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() => scrollToSection(s.id)}
+                className={
+                  active
+                    ? "flex shrink-0 items-center gap-1.5 rounded-md bg-white/[0.06] px-2.5 py-1 text-xs font-medium text-on-surface"
+                    : "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-on-surface-variant transition-colors hover:bg-white/[0.03] hover:text-on-surface"
+                }
+              >
+                <Icon className="size-3.5" />
+                {s.label}
+              </button>
+            );
+          })}
+          <div className="ml-auto shrink-0 pl-2">
+            <CopyMarkdownButton markdown={markdown} />
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-8 p-4 sm:p-6">
+        {/* Hero */}
+        <div className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent-purple-bg text-accent-purple">
+                <ScrollText className="size-4" />
+              </span>
+              <h2 className="text-lg font-semibold text-on-surface">{projectName}</h2>
+            </div>
+            {sections.length <= 1 && <CopyMarkdownButton markdown={markdown} />}
+          </div>
+          {overview.tagline && (
+            <p className="max-w-2xl text-sm leading-relaxed text-on-surface-variant">
+              {overview.tagline}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2 pt-1">
+            {hasFeatures && (
+              <OverviewStat value={overview.highlighted_features.length} label="features" />
+            )}
+            {hasComponents && (
+              <OverviewStat value={overview.architecture.components.length} label="components" />
+            )}
+            {overview.tech_stack.length > 0 && (
+              <OverviewStat value={overview.tech_stack.length} label="technologies" />
+            )}
+          </div>
+        </div>
+
+        {overview.context && (
+          <OverviewSection
+            id="context"
+            title="Context"
+            icon={BookOpen}
+            setRef={(el) => {
+              refs.current.context = el;
+            }}
+          >
+            <ProseText text={overview.context} />
+          </OverviewSection>
+        )}
+
+        {overview.objective && (
+          <OverviewSection
+            id="objective"
+            title="Objective"
+            icon={Target}
+            setRef={(el) => {
+              refs.current.objective = el;
+            }}
+          >
+            <ProseText text={overview.objective} />
+          </OverviewSection>
+        )}
+
+        {hasFeatures && (
+          <OverviewSection
+            id="features"
+            title="Highlighted features"
+            icon={Zap}
+            setRef={(el) => {
+              refs.current.features = el;
+            }}
+          >
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {overview.highlighted_features.map((f, i) => (
+                <div
+                  key={i}
+                  className="flex gap-3 rounded-lg border border-outline-variant p-3 transition-colors hover:border-outline hover:bg-white/[0.03]"
+                >
+                  <span
+                    className={`flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-bold tabular-nums ${OVERVIEW_ACCENTS[i % OVERVIEW_ACCENTS.length]}`}
+                  >
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-on-surface">{f.name}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
+                      {f.description}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </OverviewSection>
+        )}
+
+        {hasArchitecture && (
+          <OverviewSection
+            id="architecture"
+            title="Architecture"
+            icon={Boxes}
+            setRef={(el) => {
+              refs.current.architecture = el;
+            }}
+          >
+            {overview.architecture.overview && <ProseText text={overview.architecture.overview} />}
+            {hasComponents && (
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {overview.architecture.components.map((c, i) => (
+                  <div
+                    key={i}
+                    className="flex gap-3 rounded-lg border border-outline-variant p-3 transition-colors hover:border-outline hover:bg-white/[0.03]"
+                  >
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent-purple-bg text-accent-purple">
+                      <Component className="size-4" />
+                    </span>
+                    <div>
+                      <p className="text-sm font-medium text-on-surface">{c.name}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
+                        {c.description}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </OverviewSection>
+        )}
+
+        {overview.tech_stack.length > 0 && (
+          <OverviewSection
+            id="stack"
+            title="Tech stack"
+            icon={Layers}
+            setRef={(el) => {
+              refs.current.stack = el;
+            }}
+          >
+            <div className="flex flex-wrap gap-1.5">
+              {overview.tech_stack.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant transition-colors hover:border-outline hover:text-on-surface"
+                >
+                  <span className="size-1.5 rounded-full bg-accent-green" />
+                  {t}
+                </span>
+              ))}
+            </div>
+          </OverviewSection>
+        )}
+      </div>
+      {spacerHeight > 0 && <div aria-hidden style={{ height: spacerHeight }} />}
+    </div>
+  );
+}
+
+function OverviewStat({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="flex items-baseline gap-1.5 rounded-md border border-outline-variant px-2.5 py-1">
+      <span className="text-sm font-semibold tabular-nums text-on-surface">{value}</span>
+      <span className="text-xs text-on-surface-variant">{label}</span>
+    </div>
+  );
+}
+
+function OverviewSection({
+  id,
+  title,
+  icon: Icon,
+  setRef,
+  children,
+}: {
+  id: string;
+  title: string;
+  icon: OverviewIcon;
+  setRef: (el: HTMLElement | null) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} ref={setRef} className="scroll-mt-16">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className="size-4 text-on-surface-variant" />
+        <h3 className="text-xs font-bold uppercase tracking-wide text-on-surface-variant">
+          {title}
+        </h3>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** Copies the overview as Markdown, swapping the icon/label to a check for feedback. */
+function CopyMarkdownButton({ markdown }: { markdown: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(markdown);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // clipboard unavailable (e.g. insecure context) — silently ignore
+        }
+      }}
+      className="flex shrink-0 items-center gap-1.5 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant transition-colors hover:bg-white/5 hover:text-on-surface"
+    >
+      {copied ? <Check className="size-3 text-accent-green" /> : <Copy className="size-3" />}
+      {copied ? "Copied" : "Copy as Markdown"}
+    </button>
+  );
+}
+
+/** Renders prose as paragraphs split on blank lines — the LLM may return multi-paragraph text. */
+function ProseText({ text }: { text: string }) {
+  const paragraphs = text.split(/\n{2,}/).filter(Boolean);
+  return (
+    <div className="flex flex-col gap-2">
+      {paragraphs.map((p, i) => (
+        <p key={i} className="text-sm leading-relaxed text-on-surface">
+          {p}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 function InsightsSkeleton({ compact }: { compact?: boolean }) {

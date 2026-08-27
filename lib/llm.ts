@@ -1,5 +1,5 @@
 import OpenAI, { APIConnectionError, APIError, RateLimitError } from "openai";
-import { analysisSchema, type Analysis } from "./schema";
+import { analysisSchema, projectOverviewSchema, type Analysis, type ProjectOverview } from "./schema";
 import type { BuiltContext } from "./context";
 import { logger } from "./logging";
 import { resolveSettings } from "./settings";
@@ -37,6 +37,12 @@ export interface TokenUsage {
 
 export interface AnalyzeResult {
   analysis: Analysis;
+  /** null when the backend didn't report usage (some OpenAI-compatible proxies omit it). */
+  usage: TokenUsage | null;
+}
+
+export interface OverviewResult {
+  overview: ProjectOverview;
   /** null when the backend didn't report usage (some OpenAI-compatible proxies omit it). */
   usage: TokenUsage | null;
 }
@@ -198,6 +204,33 @@ range. Return a short bullet list (plain text, no JSON) of what changed in this
 batch — features, fixes, refactors. Be terse; this will be combined with other
 batches later.`;
 
+const OVERVIEW_SYSTEM_PROMPT = `You are a Technical Lead writing a living README-style
+overview of a personal project, for someone who wants to remember what it does and why
+it exists. You are given the project's README (if any) and a list of achievements, fixes,
+and architectural changes accumulated across every sync so far. Synthesize this into a
+cohesive overview — do not just restate the input as bullet points; write connected prose
+for the narrative fields. Return ONLY valid JSON matching this schema — no prose, no
+markdown fences:
+
+{
+  "tagline": string,               // one-line description of what the project is
+  "context": string,               // what the project is / background, 1-2 short paragraphs of prose
+  "objective": string,             // its goals / purpose, 1-2 short paragraphs of prose
+  "highlighted_features": [
+    { "name": string, "description": string }
+  ],
+  "architecture": {
+    "overview": string,            // prose explaining the overall design/approach
+    "components": [
+      { "name": string, "description": string }
+    ]
+  },
+  "tech_stack": string[]
+}
+
+Only include what you can infer from the given material — leave a field empty (empty
+string or empty array) rather than inventing content not supported by the input.`;
+
 interface ChatResult {
   content: string;
   usage: TokenUsage | null;
@@ -213,11 +246,15 @@ function usageFromCompletion(completion: OpenAI.Chat.ChatCompletion): TokenUsage
   };
 }
 
-async function chatJson(userContent: string, retryHint?: string): Promise<ChatResult> {
+async function chatJson(
+  userContent: string,
+  retryHint?: string,
+  systemPrompt: string = SYSTEM_PROMPT,
+): Promise<ChatResult> {
   const { client, model } = await getClientAndModel();
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     { role: "user", content: userContent },
   ];
   if (retryHint) {
@@ -282,6 +319,22 @@ export function parseAndValidate(raw: string): Analysis {
   return result.data;
 }
 
+export function parseOverview(raw: string): ProjectOverview {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripCodeFence(raw));
+  } catch {
+    throw new LlmOutputError("Model did not return valid JSON.");
+  }
+  const result = projectOverviewSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new LlmOutputError(
+      `Model JSON did not match the expected schema: ${result.error.message}`,
+    );
+  }
+  return result.data;
+}
+
 /**
  * Runs the analysis prompt for a single-call context, validating the result
  * and retrying once with a corrective nudge if the model returns malformed
@@ -293,9 +346,10 @@ async function analyzeSingle(text: string): Promise<AnalyzeResult> {
     return { analysis: parseAndValidate(first.content), usage: first.usage };
   } catch (err) {
     logger.warn("LLM output failed validation, retrying once", err);
+    const detail = err instanceof Error ? err.message : String(err);
     const retry = await chatJson(
       text,
-      "Your previous response was not valid JSON matching the schema. Return ONLY the JSON object, with no surrounding text or markdown fences.",
+      `Your previous response was invalid: ${detail}\nReturn ONLY a corrected JSON object matching the schema exactly (including the exact enum values given), with no surrounding text or markdown fences.`,
     );
     return {
       analysis: parseAndValidate(retry.content), // let this throw if it fails again
@@ -336,4 +390,30 @@ export async function analyze(context: BuiltContext): Promise<AnalyzeResult> {
     return analyzeSingle(context.text);
   }
   return analyzeMapReduce(context.chunks, context.readmeAndIssues);
+}
+
+/**
+ * Synthesizes a README-style living overview (context, objective, highlighted
+ * features, architecture) from the repo's README plus achievements/fixes/
+ * architecture accumulated across every sync so far. Validates the result and
+ * retries once with a corrective nudge on malformed/schema-invalid JSON, same
+ * pattern as analyzeSingle.
+ */
+export async function synthesizeOverview(input: string): Promise<OverviewResult> {
+  const first = await chatJson(input, undefined, OVERVIEW_SYSTEM_PROMPT);
+  try {
+    return { overview: parseOverview(first.content), usage: first.usage };
+  } catch (err) {
+    logger.warn("Overview LLM output failed validation, retrying once", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    const retry = await chatJson(
+      input,
+      `Your previous response was invalid: ${detail}\nReturn ONLY a corrected JSON object matching the schema exactly, with no surrounding text or markdown fences.`,
+      OVERVIEW_SYSTEM_PROMPT,
+    );
+    return {
+      overview: parseOverview(retry.content), // let this throw if it fails again
+      usage: sumUsage([first.usage, retry.usage]),
+    };
+  }
 }
