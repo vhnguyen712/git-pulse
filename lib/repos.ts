@@ -1,8 +1,9 @@
-import { gt, eq, and } from "drizzle-orm";
+import { gt, eq, and, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects, actionItems } from "@/lib/db/schema";
 import { listRepos } from "@/lib/github";
 import { isProjectStale } from "@/lib/sync";
+import { computeRepoHealth, type RepoHealth } from "@/lib/portfolio";
 
 export interface RepoCardData {
   owner: string;
@@ -26,6 +27,26 @@ export interface RepoCardData {
   hasUnanalyzedChanges: boolean;
   /** Action items created since the project workspace was last opened. */
   newItemCount: number;
+  /** Momentum score for pinned projects (see lib/portfolio.ts#computeRepoHealth); null for un-pinned repos. */
+  health: RepoHealth | null;
+}
+
+/** actionItems.projectId -> count of open (suggested/approved) items, for the health score. */
+async function getOpenItemCounts(pinnedIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (pinnedIds.length === 0) return counts;
+
+  const rows = await db
+    .select({ projectId: actionItems.projectId })
+    .from(actionItems)
+    .where(
+      and(
+        inArray(actionItems.projectId, pinnedIds),
+        inArray(actionItems.status, ["suggested", "approved"]),
+      ),
+    );
+  for (const r of rows) counts.set(r.projectId, (counts.get(r.projectId) ?? 0) + 1);
+  return counts;
 }
 
 /** actionItems.projectId -> count of items created after that project's lastViewedAt (or all items, if never viewed). */
@@ -61,7 +82,10 @@ export async function getRepoCards(opts: { force?: boolean } = {}): Promise<Repo
   const pinnedByFullName = new Map(
     pinned.map((p) => [`${p.owner}/${p.repoName}`, p]),
   );
-  const newItemCounts = await getNewItemCounts(pinned);
+  const [newItemCounts, openItemCounts] = await Promise.all([
+    getNewItemCounts(pinned),
+    getOpenItemCounts(pinned.map((p) => p.id)),
+  ]);
 
   return repos.map((r) => {
     const project = pinnedByFullName.get(r.fullName);
@@ -69,6 +93,14 @@ export async function getRepoCards(opts: { force?: boolean } = {}): Promise<Repo
       ? isProjectStale(project, r.pushedAt)
       : true;
     const newItemCount = project ? newItemCounts.get(project.id) ?? 0 : 0;
+    // Health is only meaningful for pinned projects — un-pinned repos have no
+    // sync history or tracked suggestions to score.
+    const health = project
+      ? computeRepoHealth({
+          pushedAt: r.pushedAt,
+          openItemCount: openItemCounts.get(project.id) ?? 0,
+        })
+      : null;
 
     return {
       owner: r.owner,
@@ -84,6 +116,7 @@ export async function getRepoCards(opts: { force?: boolean } = {}): Promise<Repo
       lastSyncedAt: project?.lastSyncedAt ?? null,
       hasUnanalyzedChanges,
       newItemCount,
+      health,
     };
   });
 }

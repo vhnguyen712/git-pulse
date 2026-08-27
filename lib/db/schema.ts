@@ -92,8 +92,13 @@ export const actionItems = sqliteTable("action_items", {
   summaryId: text("summary_id").references(() => aiSummaries.id, {
     onDelete: "set null",
   }),
-  /** Which LLM output block this item came from. */
-  source: text("source", { enum: ["next_step", "brainstorm"] }).notNull(),
+  /**
+   * Where this item came from: an LLM analysis block ("next_step" /
+   * "brainstorm"), or the inline-comment scanner ("todo", see lib/todo-scan.ts).
+   * The column is plain TEXT with no DB-level check, so this enum is a
+   * TypeScript contract only — adding a value needs no migration.
+   */
+  source: text("source", { enum: ["next_step", "brainstorm", "todo"] }).notNull(),
   title: text("title").notNull(),
   description: text("description"),
   category: text("category"),
@@ -142,6 +147,16 @@ export const settings = sqliteTable("settings", {
   /** Optional display-only pricing used to estimate cost from stored token counts; never sent anywhere. */
   costPerMillionInput: text("cost_per_million_input"),
   costPerMillionOutput: text("cost_per_million_output"),
+  /**
+   * In-app auto-sync scheduler (server.ts). When enabled, the long-lived
+   * server process re-syncs every stale pinned project on the interval below —
+   * the same stale-sweep the /api/cron/sync endpoint runs, no external
+   * scheduler needed. Read fresh on each tick so a Settings change takes
+   * effect with no restart. Null/false = disabled (the default).
+   */
+  autoSyncEnabled: integer("auto_sync_enabled", { mode: "boolean" }),
+  /** Minutes between auto-sync sweeps when enabled. Null falls back to a built-in default (see lib/auto-sync.ts). */
+  autoSyncIntervalMinutes: integer("auto_sync_interval_minutes"),
   /**
    * Per-agent CLI command/args overrides, as JSON: `{ [agentId]: { command?, args? } }`.
    * Lets an install point an agent at a non-PATH binary (see lib/terminal/agents.ts

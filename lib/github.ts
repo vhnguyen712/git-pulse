@@ -343,6 +343,67 @@ export async function getReadme(owner: string, repo: string): Promise<string | n
   }
 }
 
+export interface TreeEntry {
+  path: string;
+  /** "blob" (file) or "tree" (directory). */
+  type: string;
+  sha: string;
+  /** Byte size for blobs; undefined for trees. */
+  size?: number;
+}
+
+export interface RepoTree {
+  entries: TreeEntry[];
+  /** True when GitHub truncated the tree (very large repos) — the scan then covers a prefix only. */
+  truncated: boolean;
+}
+
+/**
+ * Recursive git tree at a ref (branch head sha or commit sha). Used by the
+ * TODO/FIXME scanner (lib/todo-scan.ts) to enumerate a repo's files without
+ * cloning it. GitHub truncates the response for very large repos — surfaced
+ * via `truncated` so the caller can note an incomplete scan.
+ */
+export async function getTree(
+  owner: string,
+  repo: string,
+  treeSha: string,
+): Promise<RepoTree> {
+  const octokit = await getOctokit();
+  return withRateLimitHandling(async () => {
+    const { data } = await octokit.git.getTree({
+      owner,
+      repo,
+      tree_sha: treeSha,
+      recursive: "1",
+    });
+    const entries: TreeEntry[] = data.tree
+      .filter((t): t is typeof t & { path: string; type: string; sha: string } =>
+        Boolean(t.path && t.type && t.sha),
+      )
+      .map((t) => ({ path: t.path, type: t.type, sha: t.sha, size: t.size }));
+    return { entries, truncated: Boolean(data.truncated) };
+  });
+}
+
+/**
+ * UTF-8 contents of a single blob by its sha. Returns null for a blob GitHub
+ * doesn't hand back as base64 (unexpected encoding) so the caller can skip it
+ * rather than choke. 404 propagates like other GitHub errors.
+ */
+export async function getBlobText(
+  owner: string,
+  repo: string,
+  fileSha: string,
+): Promise<string | null> {
+  const octokit = await getOctokit();
+  return withRateLimitHandling(async () => {
+    const { data } = await octokit.git.getBlob({ owner, repo, file_sha: fileSha });
+    if (data.encoding !== "base64") return null;
+    return Buffer.from(data.content, "base64").toString("utf-8");
+  });
+}
+
 export interface OpenIssueSummary {
   number: number;
   title: string;

@@ -12,6 +12,9 @@ export interface ResolvedSettings {
   cronSecret: string | null;
   costPerMillionInput: string | null;
   costPerMillionOutput: string | null;
+  /** In-app auto-sync scheduler (server.ts). Not env-backed — UI-only config. */
+  autoSyncEnabled: boolean;
+  autoSyncIntervalMinutes: number | null;
   agentOverrides: AgentOverrides;
 }
 
@@ -44,6 +47,8 @@ export async function resolveSettings(): Promise<ResolvedSettings> {
     cronSecret: row?.cronSecret || process.env.CRON_SECRET || null,
     costPerMillionInput: row?.costPerMillionInput || process.env.LLM_COST_PER_MILLION_INPUT || null,
     costPerMillionOutput: row?.costPerMillionOutput || process.env.LLM_COST_PER_MILLION_OUTPUT || null,
+    autoSyncEnabled: Boolean(row?.autoSyncEnabled),
+    autoSyncIntervalMinutes: row?.autoSyncIntervalMinutes ?? null,
     agentOverrides: parseAgentOverrides(row?.agentOverrides),
   };
 }
@@ -104,6 +109,9 @@ export interface SettingsUpdate {
   cronSecret?: string;
   costPerMillionInput?: string;
   costPerMillionOutput?: string;
+  autoSyncEnabled?: boolean;
+  /** Null clears the stored interval (falls back to the built-in default). */
+  autoSyncIntervalMinutes?: number | null;
   /** Replaces the whole overrides map (the settings form submits it in full, not per-agent). */
   agentOverrides?: AgentOverrides;
 }
@@ -127,6 +135,8 @@ export async function upsertSettings(update: SettingsUpdate): Promise<void> {
     cronSecret: existing?.cronSecret ?? null,
     costPerMillionInput: existing?.costPerMillionInput ?? null,
     costPerMillionOutput: existing?.costPerMillionOutput ?? null,
+    autoSyncEnabled: existing?.autoSyncEnabled ?? null,
+    autoSyncIntervalMinutes: existing?.autoSyncIntervalMinutes ?? null,
     agentOverrides: existing?.agentOverrides ?? null,
   };
 
@@ -149,6 +159,9 @@ export async function upsertSettings(update: SettingsUpdate): Promise<void> {
     next.costPerMillionInput = update.costPerMillionInput || null;
   if ("costPerMillionOutput" in update)
     next.costPerMillionOutput = update.costPerMillionOutput || null;
+  if ("autoSyncEnabled" in update) next.autoSyncEnabled = update.autoSyncEnabled ?? null;
+  if ("autoSyncIntervalMinutes" in update)
+    next.autoSyncIntervalMinutes = update.autoSyncIntervalMinutes ?? null;
 
   await db
     .insert(settings)

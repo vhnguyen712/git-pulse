@@ -118,6 +118,15 @@ export const createIssueRequestSchema = z.object({
 });
 export type CreateIssueRequest = z.infer<typeof createIssueRequestSchema>;
 
+/** Body for POST /api/todo-scan — scans a pinned project's repo for inline TODO/FIXME markers. */
+export const todoScanRequestSchema = z.object({
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+  /** Optional branch to scan; when omitted the project's stored/default branch is used. */
+  branch: z.string().min(1).optional(),
+});
+export type TodoScanRequest = z.infer<typeof todoScanRequestSchema>;
+
 /** Body for POST /api/pulls — opens a draft PR for the item's gitpulse/<id> branch. */
 export const openPullRequestRequestSchema = z.object({
   actionItemId: z.string().min(1),
@@ -159,6 +168,10 @@ export const settingsUpdateSchema = z.object({
   cronSecret: z.string().optional(),
   costPerMillionInput: z.string().optional(),
   costPerMillionOutput: z.string().optional(),
+  /** In-app auto-sync scheduler toggle (server.ts). */
+  autoSyncEnabled: z.boolean().optional(),
+  /** Minutes between sweeps; null clears it back to the built-in default. Floored in lib/auto-sync.ts. */
+  autoSyncIntervalMinutes: z.number().int().positive().nullable().optional(),
   /** Per-agent CLI command/args overrides, keyed by agent id (see lib/terminal/agents.ts). */
   agentOverrides: z
     .record(z.string(), z.object({ command: z.string().optional(), args: z.array(z.string()).optional() }))

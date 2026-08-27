@@ -104,6 +104,9 @@ export function SettingsForm() {
   const [cronSecret, setCronSecret] = useState("");
   const [costInput, setCostInput] = useState("");
   const [costOutput, setCostOutput] = useState("");
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
+  /** Interval as a raw input string so the field can be cleared; parsed on submit. */
+  const [autoSyncInterval, setAutoSyncInterval] = useState("");
   /** Per-agent CLI command override, keyed by agent id — blank means "use the default". */
   const [agentCommands, setAgentCommands] = useState<Record<string, string>>({});
 
@@ -134,6 +137,10 @@ export function SettingsForm() {
       setLlmModel(body.llmModel ?? "");
       setCostInput(body.costPerMillionInput ?? "");
       setCostOutput(body.costPerMillionOutput ?? "");
+      setAutoSyncEnabled(body.autoSyncEnabled);
+      setAutoSyncInterval(
+        body.autoSyncIntervalMinutes != null ? String(body.autoSyncIntervalMinutes) : "",
+      );
       setAgentCommands(
         Object.fromEntries(
           AGENT_LIST.map((a) => [a.id, body.agentOverrides[a.id]?.command ?? ""]),
@@ -168,6 +175,10 @@ export function SettingsForm() {
       setLlmModel(body.llmModel ?? "");
       setCostInput(body.costPerMillionInput ?? "");
       setCostOutput(body.costPerMillionOutput ?? "");
+      setAutoSyncEnabled(body.autoSyncEnabled);
+      setAutoSyncInterval(
+        body.autoSyncIntervalMinutes != null ? String(body.autoSyncIntervalMinutes) : "",
+      );
       setAgentCommands(
         Object.fromEntries(
           AGENT_LIST.map((a) => [a.id, body.agentOverrides[a.id]?.command ?? ""]),
@@ -186,11 +197,19 @@ export function SettingsForm() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const trimmedInterval = autoSyncInterval.trim();
+    const parsedInterval = trimmedInterval === "" ? null : Number(trimmedInterval);
     const payload: Record<string, unknown> = {
       llmBaseUrl: llmBaseUrl.trim(),
       llmModel: llmModel.trim(),
       costPerMillionInput: costInput.trim(),
       costPerMillionOutput: costOutput.trim(),
+      autoSyncEnabled,
+      // Null clears it back to the built-in default; ignore a non-numeric entry.
+      autoSyncIntervalMinutes:
+        parsedInterval != null && Number.isFinite(parsedInterval) && parsedInterval > 0
+          ? Math.floor(parsedInterval)
+          : null,
       agentOverrides: Object.fromEntries(
         AGENT_LIST.map((a) => [a.id, { command: agentCommands[a.id]?.trim() || undefined }]),
       ),
@@ -464,10 +483,45 @@ export function SettingsForm() {
         <div className="flex flex-col gap-4 rounded-lg border border-outline-variant bg-surface p-4">
           <h2 className="font-heading text-sm font-semibold text-on-surface">Automation</h2>
 
+          <label className="flex items-start gap-2 text-xs text-on-surface">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={autoSyncEnabled}
+              onChange={(e) => setAutoSyncEnabled(e.target.checked)}
+            />
+            <span>
+              Auto-sync stale projects in the background
+              <span className="mt-0.5 block text-[11px] text-on-surface-variant">
+                While the app is running, re-sync every pinned project pushed to since its last sync
+                — no external scheduler needed.
+              </span>
+            </span>
+          </label>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-on-surface">Interval (minutes)</label>
+            <input
+              type="number"
+              min={5}
+              step={1}
+              className={cn(inputClass, "max-w-40", !autoSyncEnabled && "opacity-50")}
+              value={autoSyncInterval}
+              onChange={(e) => setAutoSyncInterval(e.target.value)}
+              placeholder="30"
+              disabled={!autoSyncEnabled}
+              autoComplete="off"
+            />
+            <p className="text-[11px] text-on-surface-variant">
+              How often to sweep. Blank uses the default (30 min); anything under 5 minutes is
+              floored to 5.
+            </p>
+          </div>
+
           <Field
             label="Cron secret"
             source={data.cronSecretSource}
-            hint="Required by POST /api/cron/sync as a Bearer token — used to trigger auto-sync from Windows Task Scheduler or another local scheduler."
+            hint="Alternative to the in-app scheduler above: required by POST /api/cron/sync as a Bearer token, for triggering auto-sync from Windows Task Scheduler or another external scheduler."
           >
             <input
               type="password"
