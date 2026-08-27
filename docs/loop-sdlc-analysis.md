@@ -4,7 +4,8 @@
 > considered and **set aside**. The chosen direction is the *observable,
 > controllable run cockpit* — see `observable-run-cockpit.md`. This document is
 > kept for the loop mapping and the "what would full autonomy require" reasoning,
-> which still informs the cockpit's run model.
+> which still informs the cockpit's run model. The actionable plan lives in
+> `build-plan.md` (this doc + `observable-run-cockpit.md` compiled together).
 
 
 > Analysis of evolving GitPulse from a *planning dashboard that can launch an

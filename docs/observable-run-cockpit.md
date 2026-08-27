@@ -1,5 +1,10 @@
 # The Observable Run Cockpit (chosen direction)
 
+> **Compiled into the plan of record:** this direction and the loop-SDLC run
+> model are merged into a single build-and-ship plan — see `build-plan.md`. This
+> doc is kept for the reframing and rationale.
+
+
 > **Direction decision.** GitPulse should *not* operate a full autonomous
 > loop-engineering SDLC (see `loop-sdlc-analysis.md` for why that was
 > considered and set aside). Instead the goal is a **fully controllable,
