@@ -1,31 +1,15 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { projects } from "@/lib/db/schema";
-import { listRepos, GitHubConfigError, GitHubRateLimitError } from "@/lib/github";
-import { syncProject, isProjectStale } from "@/lib/sync";
+import { GitHubConfigError, GitHubRateLimitError } from "@/lib/github";
 import { LlmConfigError, LlmOutputError, LlmUnavailableError } from "@/lib/llm";
 import { resolveSettings } from "@/lib/settings";
+import { runAutoSync } from "@/lib/auto-sync";
 import { logger } from "@/lib/logging";
 
-/** Caps per invocation so one cron tick can't burn an unbounded amount of GitHub/LLM budget. */
-const MAX_REPOS_PER_RUN = 10;
-/** Spacing between syncs so a burst of stale repos doesn't hammer the GitHub API back-to-back. */
-const DELAY_BETWEEN_SYNCS_MS = 1500;
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-interface RunEntry {
-  owner: string;
-  repo: string;
-  result: "synced" | "up_to_date" | "error" | "analysis_unavailable";
-  error?: string;
-}
-
 /**
- * Auto-sync endpoint for scheduled/background sync (roadmap #3). Not called
- * by the UI — trigger it from an OS scheduler (see README) with:
+ * Auto-sync endpoint for scheduled/background sync (roadmap #3). Also
+ * reachable via the in-app scheduler (server.ts), which calls the same
+ * runAutoSync() sweep directly. Trigger this endpoint from an external
+ * scheduler (see README) with:
  *   Authorization: Bearer <cronSecret from Settings, or CRON_SECRET env>
  * Syncs pinned projects whose GitHub repo has been pushed to since their
  * last sync, using the same staleness check as the Overview's "unanalyzed
@@ -47,52 +31,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const [pinned, liveRepos] = await Promise.all([
-      db.select().from(projects),
-      listRepos(),
-    ]);
-    const liveByFullName = new Map(liveRepos.map((r) => [r.fullName, r]));
-
-    const stale = pinned.filter((p) => {
-      const live = liveByFullName.get(`${p.owner}/${p.repoName}`);
-      // No live match (renamed, deleted, or access lost) — nothing to sync against.
-      if (!live) return false;
-      return isProjectStale(p, live.pushedAt);
-    });
-
-    const toRun = stale.slice(0, MAX_REPOS_PER_RUN);
-    const results: RunEntry[] = [];
-
-    for (const [i, project] of toRun.entries()) {
-      try {
-        const result = await syncProject(project.owner, project.repoName);
-        results.push({
-          owner: project.owner,
-          repo: project.repoName,
-          result: result.analysisUnavailable
-            ? "analysis_unavailable"
-            : result.upToDate
-              ? "up_to_date"
-              : "synced",
-          error: result.analysisError,
-        });
-      } catch (err) {
-        logger.error(`cron sync failed for ${project.owner}/${project.repoName}`, err);
-        results.push({
-          owner: project.owner,
-          repo: project.repoName,
-          result: "error",
-          error: err instanceof Error ? err.message : "Unknown error",
-        });
-      }
-      if (i < toRun.length - 1) await sleep(DELAY_BETWEEN_SYNCS_MS);
-    }
-
-    return NextResponse.json({
-      staleCount: stale.length,
-      ranCount: toRun.length,
-      results,
-    });
+    return NextResponse.json(await runAutoSync());
   } catch (err) {
     if (err instanceof GitHubConfigError || err instanceof LlmConfigError) {
       return NextResponse.json({ error: err.message }, { status: 500 });

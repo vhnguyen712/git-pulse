@@ -27,6 +27,8 @@ export interface SettingsResponse {
   costPerMillionInputSource: "settings" | "env" | "none";
   costPerMillionOutput: string | null;
   costPerMillionOutputSource: "settings" | "env" | "none";
+  autoSyncEnabled: boolean;
+  autoSyncIntervalMinutes: number | null;
   agentOverrides: AgentOverrides;
 }
 
@@ -50,6 +52,8 @@ async function buildResponse(): Promise<SettingsResponse> {
     costPerMillionInputSource: source.costPerMillionInput,
     costPerMillionOutput: row?.costPerMillionOutput ?? null,
     costPerMillionOutputSource: source.costPerMillionOutput,
+    autoSyncEnabled: Boolean(row?.autoSyncEnabled),
+    autoSyncIntervalMinutes: row?.autoSyncIntervalMinutes ?? null,
     agentOverrides: parseAgentOverrides(row?.agentOverrides),
   };
 }

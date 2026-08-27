@@ -46,12 +46,25 @@ overrides it. Copy `.env.example` to `.env.local` if you want to use it:
 
 ## Auto-sync (optional)
 
-`POST /api/cron/sync` re-syncs every pinned project whose repo has been
-pushed to since its last sync — the same background job the "Sync now"
-button runs, just for all stale repos at once (capped at 10 per run, spaced
-out to stay under GitHub's rate limits). It's not called automatically; wire
-it up to a scheduler if you want the dashboard to stay current without
-clicking Sync.
+Auto-sync re-syncs every pinned project whose repo has been pushed to since
+its last sync — the same background job the "Sync now" button runs, just for
+all stale repos at once (capped at 10 per run, spaced out to stay under
+GitHub's rate limits). There are two ways to run it.
+
+### In-app scheduler (recommended)
+
+The simplest option — no OS scheduler to wire up. In
+[Settings](http://127.0.0.1:3000/settings) → **Automation**, tick
+**Auto-sync stale projects in the background** and set an interval (minutes;
+default 30, floored at 5). While the app is running, it sweeps stale
+projects on that interval on its own. Toggling it takes effect immediately —
+no restart. (Only active for a persistent process, i.e. `npm run start`; the
+dev server skips it.)
+
+### External scheduler (via the cron endpoint)
+
+Alternatively, `POST /api/cron/sync` runs the same sweep, so you can drive it
+from an OS scheduler if you prefer to keep the app process free of a timer.
 
 1. Set a **Cron secret** in [Settings](http://127.0.0.1:3000/settings)
    (or `CRON_SECRET` in `.env.local`).

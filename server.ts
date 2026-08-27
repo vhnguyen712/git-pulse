@@ -13,6 +13,7 @@ import { URL } from "node:url";
 import next from "next";
 import { WebSocketServer } from "ws";
 import { attachTerminal, isSameOrigin } from "@/lib/terminal/server";
+import { startAutoSyncScheduler } from "@/lib/auto-sync-scheduler";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "127.0.0.1";
@@ -68,6 +69,12 @@ async function main() {
   server.listen(port, hostname, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
   });
+
+  // In-app auto-sync: a single long-lived ticker that re-syncs stale pinned
+  // projects on the interval configured in Settings (read fresh each tick, so
+  // toggling it needs no restart). Only meaningful for a persistent process,
+  // so it's skipped in dev where `next dev` re-evaluates modules on change.
+  if (!dev) startAutoSyncScheduler();
 }
 
 main().catch((err) => {
