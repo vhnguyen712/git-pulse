@@ -1,5 +1,12 @@
 # Can GitPulse become a loop-engineering SDLC platform?
 
+> **Direction note (superseded in part):** full autonomous loop operation was
+> considered and **set aside**. The chosen direction is the *observable,
+> controllable run cockpit* — see `observable-run-cockpit.md`. This document is
+> kept for the loop mapping and the "what would full autonomy require" reasoning,
+> which still informs the cockpit's run model.
+
+
 > Analysis of evolving GitPulse from a *planning dashboard that can launch an
 > agent* into a *platform that operates a closed engineering loop*. Grounded in
 > the codebase as of `claude/app-extension-approaches-gpxw1v`.
