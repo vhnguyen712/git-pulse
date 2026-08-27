@@ -187,6 +187,34 @@
   h4 {
     @apply font-heading tracking-tight;
   }
+
+  /*
+   * Keyboard focus ring, applied once to every interactive element.
+   * Most controls in the app are hand-rolled <button>/<a>/<select>/<input>
+   * with hover-only states — without this they fall back to the browser's
+   * default outline (inconsistent, not theme-aware). The shadcn primitives
+   * ship their own ring via `outline-none` + `focus-visible:ring-*`, so
+   * anything carrying a `data-slot` is excluded to avoid a double ring.
+   *
+   * The ring is a plain `outline` (no layout cost, follows border-radius)
+   * and is deliberately NOT transitioned — a focus indicator must appear
+   * instantly for keyboard users. Mouse/touch focus stays quiet via
+   * :focus-visible.
+   */
+  :is(
+    a[href],
+    button,
+    select,
+    input,
+    textarea,
+    summary,
+    [role="button"],
+    [role="tab"],
+    [tabindex]:not([tabindex="-1"])
+  ):not([data-slot]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
 
 /* The Pulse — reserved for live/active system processes only. */
