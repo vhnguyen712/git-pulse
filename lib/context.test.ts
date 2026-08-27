@@ -7,6 +7,7 @@ import {
   buildContext,
   buildCommitAndFileSummary,
   buildDiffAppendix,
+  buildOverviewInput,
 } from "./context";
 import type { CompareCommit, CompareFile } from "./github";
 
@@ -134,5 +135,31 @@ describe("buildContext", () => {
       expect(allText).toContain("sha319");
       expect(allText).not.toContain("sha0\n");
     }
+  });
+});
+
+describe("buildOverviewInput", () => {
+  it("includes project identity, README, and non-empty accumulated sections", () => {
+    const input = buildOverviewInput("owner/repo", "# My Project\nDoes things.", {
+      achievements: ["Shipped X"],
+      fixesAndRefactoring: [],
+      architecturalChanges: ["Split into modules"],
+    });
+    expect(input).toContain("owner/repo");
+    expect(input).toContain("Does things.");
+    expect(input).toContain("## Achievements (across all syncs)");
+    expect(input).toContain("Shipped X");
+    expect(input).not.toContain("Fixes & refactoring");
+    expect(input).toContain("## Architectural changes (across all syncs)");
+    expect(input).toContain("Split into modules");
+  });
+
+  it("omits README section when there is no README", () => {
+    const input = buildOverviewInput("owner/repo", null, {
+      achievements: [],
+      fixesAndRefactoring: [],
+      architecturalChanges: [],
+    });
+    expect(input).not.toContain("## README");
   });
 });

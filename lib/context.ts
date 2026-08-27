@@ -112,6 +112,32 @@ export function buildReadmeExcerpt(readme: string | null): string {
   return `## README\n${excerpt}${truncated}`;
 }
 
+export interface AccumulatedSummary {
+  achievements: string[];
+  fixesAndRefactoring: string[];
+  architecturalChanges: string[];
+}
+
+/** Assembles the input for lib/llm.ts#synthesizeOverview: repo identity, README, and the achievements/fixes/architecture accumulated across every sync so far. */
+export function buildOverviewInput(
+  repoFullName: string,
+  readme: string | null,
+  summary: AccumulatedSummary,
+): string {
+  const bulletList = (label: string, lines: string[]) =>
+    lines.length ? `## ${label} (across all syncs)\n${lines.map((l) => `- ${l}`).join("\n")}` : "";
+
+  return [
+    `## Project\n${repoFullName}`,
+    buildReadmeExcerpt(readme),
+    bulletList("Achievements", summary.achievements),
+    bulletList("Fixes & refactoring", summary.fixesAndRefactoring),
+    bulletList("Architectural changes", summary.architecturalChanges),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export function buildOpenIssuesList(issues: OpenIssueSummary[]): string {
   if (issues.length === 0) return "";
   const lines = issues

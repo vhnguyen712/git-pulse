@@ -29,6 +29,59 @@ export interface SyncHistoryEntry {
   };
 }
 
+/** The whole project's summary prose, accumulated across every sync. */
+export interface ProjectSummaryData {
+  achievements: string[];
+  fixesAndRefactoring: string[];
+  architecturalChanges: string[];
+  /** Number of summaries aggregated, for a subtitle like "across N syncs". */
+  syncCount: number;
+}
+
+/** Drop exact duplicates (case-insensitive, trimmed), keeping the first occurrence. */
+export function dedupeStrings(lines: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of lines) {
+    const key = line.trim().toLowerCase();
+    if (key === "" || seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+  }
+  return out;
+}
+
+/**
+ * The AI Core Insights tab shows only the latest sync's summary prose. This
+ * aggregates the same three lists across *every* sync — newest-first, exact
+ * duplicates removed — for the centralized "Project Summary" tab. All the raw
+ * data already lives in `ai_summaries.summaryJson`; nothing is regenerated.
+ */
+export async function getProjectSummary(projectId: string): Promise<ProjectSummaryData> {
+  const summaries = await db.query.aiSummaries.findMany({
+    where: (s, { eq }) => eq(s.projectId, projectId),
+    orderBy: (s, { desc }) => desc(s.createdAt),
+  });
+
+  const achievements: string[] = [];
+  const fixesAndRefactoring: string[] = [];
+  const architecturalChanges: string[] = [];
+
+  for (const s of summaries) {
+    const analysis = JSON.parse(s.summaryJson) as Analysis;
+    achievements.push(...analysis.summary.key_achievements);
+    fixesAndRefactoring.push(...analysis.summary.fixes_and_refactoring);
+    architecturalChanges.push(...analysis.summary.architectural_changes);
+  }
+
+  return {
+    achievements: dedupeStrings(achievements),
+    fixesAndRefactoring: dedupeStrings(fixesAndRefactoring),
+    architecturalChanges: dedupeStrings(architecturalChanges),
+    syncCount: summaries.length,
+  };
+}
+
 /**
  * Every past analysis for a project, oldest first — powers the History
  * timeline (roadmap #1). lib/workspace.ts only loads the single latest

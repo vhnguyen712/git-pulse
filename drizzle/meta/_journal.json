@@ -50,6 +50,13 @@
       "when": 1787644868400,
       "tag": "0006_worried_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787735572336,
+      "tag": "0007_natural_wraith",
+      "breakpoints": true
     }
   ]
 }

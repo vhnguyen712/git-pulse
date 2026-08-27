@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { projects, aiSummaries, actionItems } from "@/lib/db/schema";
+import { projects, aiSummaries, actionItems, projectOverviews } from "@/lib/db/schema";
 import type { ActionItem, Project } from "@/lib/db/schema";
 import {
   getRepo,
@@ -13,10 +13,12 @@ import {
   type CompareCommit,
   type CompareFile,
 } from "@/lib/github";
-import { buildContext } from "@/lib/context";
-import { analyze, LlmUnavailableError } from "@/lib/llm";
+import { buildContext, buildOverviewInput } from "@/lib/context";
+import { analyze, synthesizeOverview, LlmUnavailableError } from "@/lib/llm";
 import type { Analysis } from "@/lib/schema";
 import type { TokenUsage } from "@/lib/llm";
+import { getProjectSummary } from "@/lib/history";
+import { logger } from "@/lib/logging";
 
 const FIRST_SYNC_COMMIT_COUNT = 30;
 /** Sentinel base_sha for a repo's very first sync (no prior HEAD to diff from). */
@@ -245,6 +247,43 @@ export async function syncProject(
     ];
     if (newItems.length > 0) {
       await db.insert(actionItems).values(newItems);
+    }
+
+    // 5b. Regenerate the README-style living overview from the accumulated
+    // summary (now including the analysis just inserted above). Non-fatal —
+    // a failure here must not fail the sync; the previous overview (if any)
+    // is left in place and the same range will be re-attempted next sync.
+    try {
+      const projectSummary = await getProjectSummary(project.id);
+      const input = buildOverviewInput(`${owner}/${repo}`, readme, projectSummary);
+      const { overview, usage: overviewUsage } = await synthesizeOverview(input);
+      await db
+        .insert(projectOverviews)
+        .values({
+          id: crypto.randomUUID(),
+          projectId: project.id,
+          overviewJson: JSON.stringify(overview),
+          basedOnHeadSha: headSha,
+          model: process.env.LLM_MODEL,
+          promptTokens: overviewUsage?.promptTokens ?? null,
+          completionTokens: overviewUsage?.completionTokens ?? null,
+          totalTokens: overviewUsage?.totalTokens ?? null,
+          updatedAt: Date.now(),
+        })
+        .onConflictDoUpdate({
+          target: projectOverviews.projectId,
+          set: {
+            overviewJson: JSON.stringify(overview),
+            basedOnHeadSha: headSha,
+            model: process.env.LLM_MODEL,
+            promptTokens: overviewUsage?.promptTokens ?? null,
+            completionTokens: overviewUsage?.completionTokens ?? null,
+            totalTokens: overviewUsage?.totalTokens ?? null,
+            updatedAt: Date.now(),
+          },
+        });
+    } catch (err) {
+      logger.error("Overview synthesis failed during sync", err);
     }
   }
 

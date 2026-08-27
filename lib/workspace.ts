@@ -16,7 +16,7 @@ import {
   type PrCandidate,
   type ConflictInfo,
 } from "@/lib/pulls";
-import type { Analysis } from "@/lib/schema";
+import type { Analysis, ProjectOverview } from "@/lib/schema";
 import type { ActionItem, Project } from "@/lib/db/schema";
 import { getProjectHistory, type SyncHistoryEntry } from "@/lib/history";
 import { logger } from "@/lib/logging";
@@ -29,6 +29,8 @@ export interface WorkspaceData {
   latestSummary: Analysis | null;
   actionItems: ActionItem[];
   history: SyncHistoryEntry[];
+  /** README-style living overview, LLM-synthesized fresh on each sync; null until the first sync completes. */
+  projectOverview: ProjectOverview | null;
   /** Branch the "Sync now" button will target: the stored choice, or the repo default. */
   syncBranch: string;
   /** Repo's open PRs, reconciled onto their action items' githubPr* columns. */
@@ -59,6 +61,7 @@ export async function getWorkspaceData(
   let latestSummary: Analysis | null = null;
   let items: ActionItem[] = [];
   let history: SyncHistoryEntry[] = [];
+  let projectOverview: ProjectOverview | null = null;
   let pulls: PullRequestSummary[] = [];
   let prCandidates: PrCandidate[] = [];
   let conflicts: ConflictInfo[] = [];
@@ -115,6 +118,13 @@ export async function getWorkspaceData(
 
     history = await getProjectHistory(project.id);
 
+    const overviewRow = await db.query.projectOverviews.findFirst({
+      where: (o, { eq }) => eq(o.projectId, project.id),
+    });
+    if (overviewRow) {
+      projectOverview = JSON.parse(overviewRow.overviewJson) as ProjectOverview;
+    }
+
     // Opening the workspace clears its "new items" badge on the Overview —
     // fire-and-forget so it doesn't block the page render.
     void db
@@ -129,6 +139,7 @@ export async function getWorkspaceData(
     latestSummary,
     actionItems: items,
     history,
+    projectOverview,
     syncBranch,
     pulls,
     prCandidates,

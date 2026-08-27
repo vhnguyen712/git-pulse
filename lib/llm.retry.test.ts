@@ -102,4 +102,27 @@ describe("analyze retry/degradation", () => {
     await expectation;
     expect(createMock).toHaveBeenCalledTimes(1);
   });
+
+  it("retries once on a schema-invalid response, with a corrective hint, and succeeds", async () => {
+    const invalidJson = JSON.stringify({
+      summary: { key_achievements: [], fixes_and_refactoring: [], architectural_changes: [] },
+      next_steps: [{ title: "x", description: "y", priority: "high", type: "widget" }],
+      brainstorm_ideas: [],
+    });
+    createMock
+      .mockResolvedValueOnce(completion(invalidJson))
+      .mockResolvedValueOnce(completion(VALID_ANALYSIS_JSON));
+
+    const promise = analyze({ mode: "single", text: "some context", droppedCommits: 0 });
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(createMock).toHaveBeenCalledTimes(2);
+    expect(result.analysis.next_steps).toEqual([]);
+
+    const retryMessages = createMock.mock.calls[1][0].messages;
+    const retryHint = retryMessages[retryMessages.length - 1].content;
+    expect(retryHint).toContain("next_steps");
+    expect(retryHint).toContain("type");
+  });
 });
