@@ -206,16 +206,22 @@ All routes are server-side under `app/api/**`, preserving the token boundary.
 
 ## 11. Milestones — each independently shippable
 
-| M | Deliverable | Ships (run model + cockpit) | Acceptance |
-|---|---|---|---|
-| **M0** | Phase-0 spike + decision record | — | `spike-cli-streaming.md` merged; event schema fixed |
-| **M1** | `runs`/`run_steps` schema + migration; `parser.ts` + fixtures | substrate | migration applies; parser unit tests green |
-| **M2** | `runner.ts` + `recorder.ts`: start a run for Claude Code, persist timeline + usage | substrate | a run records a full step timeline with tokens |
-| **M3** | Cockpit **read** view: live timeline + running token/cost meters (WS) | **observability achieved** | open app, start a run, watch steps + meters live |
-| **M4** | Attribution (by tool / by skill) + run history + compare | observability+ | two runs comparable side by side |
-| **M5** | Budget guard + cancel | control floor | run auto-pauses at cap; cancel keeps worktree+timeline |
-| **M6** | Tool gating (approve/deny) + pause/step/inject | **real control achieved** | gate a tool, single-step, inject guidance mid-run |
-| **M7** | MCP `start_run`/`get_run` + "Run this item" + optional draft PR | integration | run launched from an action item; PR opened on demand |
+| M | Deliverable | Ships (run model + cockpit) | Acceptance | Status |
+|---|---|---|---|---|
+| **M0** | Phase-0 spike + decision record | — | `spike-cli-streaming.md` merged; event schema fixed | ✅ Claude Code, verified against a real install (v2.1.250) + a real production run through the actual runner. Codex/Antigravity still unverified — no install available. |
+| **M1** | `runs`/`run_steps` schema + migration; `parser.ts` + fixtures | substrate | migration applies; parser unit tests green | ✅ |
+| **M2** | `runner.ts` + `recorder.ts`: start a run for Claude Code, persist timeline + usage | substrate | a run records a full step timeline with tokens | ✅ |
+| **M3** | Cockpit **read** view: live timeline + running token/cost meters (WS) | **observability achieved** | open app, start a run, watch steps + meters live | ✅ backend + UI shipped, verified via a real WS/API run; UI itself not browser-rendered |
+| **M4** | Attribution (by tool / by skill) + run history + compare | observability+ | two runs comparable side by side | 🟡 run history list shipped (Runs tab); by-tool/by-skill charts and run-compare not built |
+| **M5** | Budget guard + cancel | control floor | run auto-pauses at cap; cancel keeps worktree+timeline | ✅ token/cost budget guard (SIGSTOP where supported, hard stop otherwise) + cancel (SIGTERM→SIGKILL), both verified in tests |
+| **M6** | Tool gating (approve/deny) + pause/step/inject | **real control achieved** | gate a tool, single-step, inject guidance mid-run | 🟡 pause/resume shipped (SIGSTOP/SIGCONT, POSIX). Gating/inject honestly disabled on every adapter — no `--permission-prompt-tool` exists in the real CLI (confirmed in the M0 spike); would need real design work, not a stub |
+| **M7** | MCP `start_run`/`get_run` + "Run this item" + optional draft PR | integration | run launched from an action item; PR opened on demand | 🟡 MCP tools shipped (`start_run`/`get_run`/`list_runs`). Runs launch from the Runs tab's own launcher (which can seed from an action item) rather than a button on the action-item card; draft-PR-from-a-finished-run not wired |
+
+Follow-up found during the M0 spike, not yet scheped: prefer an adapter's own
+authoritative cost (Claude Code's `total_cost_usd`) over GitPulse's flat-rate
+token estimate when available — see `spike-cli-streaming.md`'s "Known gap"
+section. GitPulse's estimate currently overstates Claude Code cost because it
+can't represent prompt-cache pricing tiers.
 
 Ship after each milestone. The product is genuinely *observable* at M3 and
 genuinely *controllable* at M6; M4/M5/M7 deepen both.

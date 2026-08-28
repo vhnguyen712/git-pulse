@@ -12,27 +12,25 @@ describe("claudeAdapter.parseLine", () => {
     ]);
   });
 
-  it("splits an assistant message into text, tool_use, and usage events", () => {
+  it("splits an assistant message into text and tool_use events, ignoring its stale embedded usage", () => {
+    // Fixture shape verified against a real CLI transcript
+    // (docs/spike-cli-streaming.md): message.usage on an assistant event is a
+    // mid-stream snapshot, not the turn's final count, so it must NOT be
+    // surfaced as a usage step here.
     const line = JSON.stringify({
       type: "assistant",
       message: {
         content: [
           { type: "text", text: "Let me edit the file." },
-          { type: "tool_use", name: "Edit", input: { file_path: "a.ts" } },
+          { type: "tool_use", id: "toolu_1", name: "Edit", input: { file_path: "a.ts" }, caller: { type: "direct" } },
         ],
-        usage: { input_tokens: 100, output_tokens: 20 },
+        usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 5624, cache_read_input_tokens: 31606 },
       },
     });
     const events = claudeAdapter.parseLine(line);
     expect(events).toEqual([
       { type: "message", title: "Let me edit the file.", payload: expect.any(Object) },
       { type: "tool_use", tool: "Edit", skill: undefined, title: "Edit", payload: { file_path: "a.ts" } },
-      {
-        type: "usage",
-        title: "Token usage",
-        usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
-        payload: { input_tokens: 100, output_tokens: 20 },
-      },
     ]);
   });
 
@@ -46,21 +44,52 @@ describe("claudeAdapter.parseLine", () => {
     ]);
   });
 
-  it("folds cache tokens into prompt tokens", () => {
+  it("extracts usage from a stream_event message_delta — the turn's authoritative, incremental count", () => {
+    // Fixture shape + values verified against a real CLI transcript: this is
+    // the ONLY reliable usage source — confirmed by summing two turns' worth
+    // of message_delta usage and matching the terminal result's cumulative
+    // usage exactly, field for field.
     const line = JSON.stringify({
-      type: "assistant",
-      message: {
-        content: [],
-        usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 90 },
+      type: "stream_event",
+      event: {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { input_tokens: 2, output_tokens: 80, cache_creation_input_tokens: 5624, cache_read_input_tokens: 31606 },
       },
     });
     expect(claudeAdapter.parseLine(line)).toEqual([
       {
         type: "usage",
         title: "Token usage",
-        usage: { promptTokens: 100, completionTokens: 5, totalTokens: 105 },
+        usage: { promptTokens: 2 + 5624 + 31606, completionTokens: 80, totalTokens: 2 + 5624 + 31606 + 80 },
         payload: expect.any(Object),
       },
+    ]);
+  });
+
+  it("ignores other stream_event subtypes (message_start/content_block_*/message_stop)", () => {
+    for (const type of ["message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_stop"]) {
+      expect(claudeAdapter.parseLine(JSON.stringify({ type: "stream_event", event: { type } }))).toEqual([]);
+    }
+  });
+
+  it("maps system/init to a session-started step and drops internal-only subtypes", () => {
+    expect(
+      claudeAdapter.parseLine(JSON.stringify({ type: "system", subtype: "init", model: "claude-x" })),
+    ).toEqual([{ type: "system", title: "Session started · claude-x", payload: expect.any(Object) }]);
+
+    // status/commands_changed/task_summary carry no timeline-worthy content —
+    // commands_changed in particular dumps every loaded skill's full
+    // description (multi-KB), which must not be stored per step.
+    for (const subtype of ["status", "commands_changed", "task_summary"]) {
+      expect(claudeAdapter.parseLine(JSON.stringify({ type: "system", subtype }))).toEqual([]);
+    }
+  });
+
+  it("maps system/post_turn_summary's status_detail to a message step", () => {
+    const line = JSON.stringify({ type: "system", subtype: "post_turn_summary", status_detail: "replied with 'pong'" });
+    expect(claudeAdapter.parseLine(line)).toEqual([
+      { type: "message", title: "replied with 'pong'", payload: expect.any(Object) },
     ]);
   });
 
@@ -159,6 +188,12 @@ describe("buildSpawn", () => {
       "--model",
       "claude-x",
     ]);
+  });
+
+  it("passes a cost budget through to Claude's own --max-budget-usd flag (confirmed present in --help; not yet exercised functionally)", () => {
+    const spec = claudeAdapter.buildSpawn({ command: "claude", args: [] }, { prompt: "do it", budgetUsd: 0.5 });
+    expect(spec.args).toContain("--max-budget-usd");
+    expect(spec.args[spec.args.indexOf("--max-budget-usd") + 1]).toBe("0.5");
   });
 
   it("builds Codex's exec --json argv", () => {
