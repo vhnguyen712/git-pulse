@@ -239,10 +239,17 @@ describe("startRun", () => {
       { projectId: "proj-1", agentId: "test-agent", config: { prompt: "do it", verify: true, verifyCommands: [] } },
       { spawn: spawnFn },
     );
+    emitLine(proc, { type: "message", title: "working" });
     proc.emit("close", 0, null);
 
     await waitUntil(() => state.run?.status === "done");
     expect(state.steps.some((s) => s.type === "verify")).toBe(true);
+    // Regression check: the verify step (recorded after the process exits) must
+    // not collide in seq with steps recorded while the process was still live —
+    // this broke once when the recorder's runtime was unregistered too early.
+    const seqs = state.steps.map((s) => s.seq as number);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(seqs.length);
     // No verify commands configured and no package.json in the fake worktree → skipped, not passed.
     expect(state.run?.verifyPassed).toBeNull();
   });

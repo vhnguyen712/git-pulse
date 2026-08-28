@@ -17,6 +17,7 @@ import {
   Layers,
   Lightbulb,
   ListChecks,
+  PlaySquare,
   RefreshCw,
   ScrollText,
   Sparkles,
@@ -32,6 +33,7 @@ import { PulseIndicator } from "@/components/pulse-indicator";
 import { BranchSelect } from "@/components/branch-select";
 import { WorktreesPanel } from "@/components/worktrees-panel";
 import { ActionItemCard } from "@/components/action-item-card";
+import { RunsPanel } from "@/components/runs-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { useTerminal } from "@/components/terminal-context";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -46,7 +48,7 @@ interface SyncErrorInfo {
   resetAt?: number;
 }
 
-type TabKey = "git" | "insights" | "summary" | "brainstorm" | "pulls" | "history";
+type TabKey = "git" | "insights" | "summary" | "brainstorm" | "pulls" | "runs" | "history";
 
 const TABS: { key: TabKey; title: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "git", title: "Git Activity", icon: GitCommitHorizontal },
@@ -54,6 +56,7 @@ const TABS: { key: TabKey; title: string; icon: React.ComponentType<{ className?
   { key: "summary", title: "Project Summary", icon: ScrollText },
   { key: "brainstorm", title: "Idea & Brainstorm Lab", icon: Lightbulb },
   { key: "pulls", title: "Pull Requests", icon: GitPullRequest },
+  { key: "runs", title: "Runs", icon: PlaySquare },
   { key: "history", title: "History", icon: History },
 ];
 
@@ -713,6 +716,13 @@ export function Workspace({
                 ))}
               </ul>
             </div>
+          )}
+        </section>
+
+        {/* Runs */}
+        <section className={activeTab === "runs" ? "flex flex-col gap-3 p-4 sm:p-6" : "hidden"}>
+          {project && (
+            <RunsPanel projectId={project.id} owner={owner} repoName={repoName} actionItems={items} />
           )}
         </section>
 

@@ -292,8 +292,12 @@ async function handleExit(
   }
   await entry.queue;
 
+  // Process bookkeeping (control actions no longer apply — nothing left to
+  // pause/cancel) is cleared now, but the recorder's runtime (seq counter,
+  // worktree-in-use registration) stays live until finalization is fully done:
+  // finalizeSuccess below still records a "verify" step through it, and the
+  // worktree is still genuinely in use while verification runs in it.
   processes.delete(runId);
-  unregisterRun(runId);
 
   const durationMs = Date.now() - entry.startedAt;
 
@@ -307,6 +311,8 @@ async function handleExit(
       durationMs,
     });
   }
+
+  unregisterRun(runId);
 
   if (entry.worktreePath) {
     await removeSessionWorktree(entry.repoPath, entry.worktreePath);
