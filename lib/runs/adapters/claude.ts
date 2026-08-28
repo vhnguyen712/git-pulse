@@ -58,8 +58,15 @@ function skillFromToolUse(name: string, input: unknown): string | undefined {
 export const claudeAdapter: AgentRunAdapter = {
   id: "claude",
   supportsStructuredStream: true,
-  supportsInjection: true,
-  supportsGating: true,
+  // Mid-run injection and per-tool gating both need a live, multi-turn input
+  // protocol (streamed stdin turns; a permission-prompt callback for gating)
+  // that isn't confirmed against an installed CLI (see the M0 spike note
+  // above) and isn't wired in lib/runs/runner.ts. Rather than claim a control
+  // the runner can't actually back, both are honestly false for now — pause/
+  // resume/cancel work today via OS-level process signals, which don't depend
+  // on this protocol. Flip these once injection/gating are actually built.
+  supportsInjection: false,
+  supportsGating: false,
 
   buildSpawn(base: AgentBaseCommand, config: RunConfig): AgentSpawnSpec {
     const args = [
