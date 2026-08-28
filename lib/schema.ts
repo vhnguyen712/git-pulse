@@ -201,6 +201,7 @@ export const runConfigSchema = z.object({
   budgetTokens: z.number().positive().optional(),
   budgetUsd: z.number().positive().optional(),
   gating: z.boolean().optional(),
+  interactive: z.boolean().optional(),
   verify: z.boolean().optional(),
   verifyCommands: z.array(z.string()).optional(),
 });

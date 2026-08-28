@@ -8,7 +8,7 @@ describe("claudeAdapter.parseLine", () => {
   it("maps the system/init line to a system step", () => {
     const line = JSON.stringify({ type: "system", subtype: "init", model: "claude-x", tools: [] });
     expect(claudeAdapter.parseLine(line)).toEqual([
-      { type: "system", title: "Session started · claude-x", payload: expect.any(Object) },
+      { type: "system", title: "Turn ready · claude-x", payload: expect.any(Object) },
     ]);
   });
 
@@ -76,7 +76,7 @@ describe("claudeAdapter.parseLine", () => {
   it("maps system/init to a session-started step and drops internal-only subtypes", () => {
     expect(
       claudeAdapter.parseLine(JSON.stringify({ type: "system", subtype: "init", model: "claude-x" })),
-    ).toEqual([{ type: "system", title: "Session started · claude-x", payload: expect.any(Object) }]);
+    ).toEqual([{ type: "system", title: "Turn ready · claude-x", payload: expect.any(Object) }]);
 
     // status/commands_changed/task_summary carry no timeline-worthy content —
     // commands_changed in particular dumps every loaded skill's full
@@ -103,13 +103,31 @@ describe("claudeAdapter.parseLine", () => {
     ]);
   });
 
-  it("marks the terminal result as a completion (not a summed usage event)", () => {
+  it("marks the terminal result as a completion (not a summed usage event) and flags turnComplete", () => {
     const ok = JSON.stringify({ type: "result", subtype: "success", is_error: false, total_cost_usd: 0.01 });
     expect(claudeAdapter.parseLine(ok)).toEqual([
-      { type: "system", title: "Run complete", payload: expect.any(Object) },
+      { type: "system", title: "Run complete", payload: expect.any(Object), turnComplete: true },
     ]);
     const bad = JSON.stringify({ type: "result", subtype: "error", is_error: true });
-    expect(claudeAdapter.parseLine(bad)[0].type).toBe("error");
+    const badEvents = claudeAdapter.parseLine(bad);
+    expect(badEvents[0].type).toBe("error");
+    expect(badEvents[0].turnComplete).toBe(true);
+  });
+
+  it("formats an interactive spawn (stream-json input) and its user-turn stdin line", () => {
+    const spec = claudeAdapter.buildSpawn({ command: "claude", args: [] }, { prompt: "do it", interactive: true });
+    expect(spec.args).toEqual([
+      "-p",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+    ]);
+    expect(spec.stdin).toBe(`${JSON.stringify({ type: "user", message: { role: "user", content: "do it" } })}\n`);
+    expect(claudeAdapter.formatUserTurn?.("more guidance")).toBe(
+      `${JSON.stringify({ type: "user", message: { role: "user", content: "more guidance" } })}\n`,
+    );
   });
 
   it("ignores blank and unparseable lines", () => {

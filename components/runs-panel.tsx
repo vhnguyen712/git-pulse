@@ -7,6 +7,7 @@ import { Play } from "lucide-react";
 import type { ActionItem, Run } from "@/lib/db/schema";
 import { AGENT_LIST } from "@/lib/terminal/agents";
 import { RunStatusBadge } from "@/components/run-status-badge";
+import { RunCompare } from "@/components/run-compare";
 import { Button } from "@/components/ui/button";
 import { formatTokens, formatUsd, timeAgo } from "@/lib/format";
 
@@ -38,9 +39,19 @@ export function RunsPanel({
   const [actionItemId, setActionItemId] = useState<string>("");
   const [prompt, setPrompt] = useState("");
   const [verify, setVerify] = useState(false);
+  const [interactive, setInteractive] = useState(false);
   const [budgetTokens, setBudgetTokens] = useState("");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  function toggleCompare(runId: string) {
+    setCompareIds((prev) => {
+      if (prev.includes(runId)) return prev.filter((id) => id !== runId);
+      if (prev.length >= 2) return prev; // cap at two — deselect one first
+      return [...prev, runId];
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +95,7 @@ export function RunsPanel({
           config: {
             prompt: prompt.trim(),
             verify,
+            interactive,
             budgetTokens: budgetTokens ? Number(budgetTokens) : undefined,
           },
         }),
@@ -151,6 +163,10 @@ export function RunsPanel({
             Verify on completion (runs the repo&apos;s own test/lint — no extra agent tokens)
           </label>
           <label className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+            <input type="checkbox" checked={interactive} onChange={(e) => setInteractive(e.target.checked)} />
+            Interactive (keep the run open to send follow-up guidance — supported agents only)
+          </label>
+          <label className="flex items-center gap-1.5 text-[11px] text-on-surface-variant">
             Token budget
             <input
               type="number"
@@ -172,7 +188,18 @@ export function RunsPanel({
       </form>
 
       <div className="flex flex-col gap-2">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Runs</p>
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Runs</p>
+          {compareIds.length > 0 && (
+            <p className="text-[11px] text-on-surface-variant">
+              {compareIds.length === 2 ? "Comparing 2 runs" : "Select one more run to compare"}
+              {" · "}
+              <button type="button" className="underline hover:no-underline" onClick={() => setCompareIds([])}>
+                clear
+              </button>
+            </p>
+          )}
+        </div>
         {loading ? (
           <p className="text-xs text-on-surface-variant">Loading…</p>
         ) : listError ? (
@@ -182,10 +209,17 @@ export function RunsPanel({
         ) : (
           <ul className="flex flex-col gap-1.5">
             {runs.map((run) => (
-              <li key={run.id}>
+              <li key={run.id} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  aria-label={`Select run ${run.id.slice(0, 8)} for comparison`}
+                  checked={compareIds.includes(run.id)}
+                  disabled={!compareIds.includes(run.id) && compareIds.length >= 2}
+                  onChange={() => toggleCompare(run.id)}
+                />
                 <Link
                   href={`/project/${owner}/${repoName}/runs/${run.id}`}
-                  className="flex flex-wrap items-center gap-2 rounded-md border border-outline-variant px-3 py-2 text-xs hover:bg-white/[0.03]"
+                  className="flex flex-1 flex-wrap items-center gap-2 rounded-md border border-outline-variant px-3 py-2 text-xs hover:bg-white/[0.03]"
                 >
                   <RunStatusBadge status={run.status} />
                   <span className="text-on-surface">{run.agentId}</span>
@@ -198,6 +232,13 @@ export function RunsPanel({
           </ul>
         )}
       </div>
+
+      {compareIds.length === 2 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Compare</p>
+          <RunCompare owner={owner} repoName={repoName} runIds={[compareIds[0], compareIds[1]]} />
+        </div>
+      )}
     </div>
   );
 }

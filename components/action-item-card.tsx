@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ExternalLink,
   GitPullRequest,
+  PlaySquare,
   SquareTerminal,
   Trash2,
   Upload,
@@ -88,6 +89,8 @@ export function ActionItemCard({
   conflict,
   onPush,
   onOpenTerminal,
+  onStartRun,
+  startingRun,
   onRemove,
   removing,
 }: {
@@ -102,6 +105,9 @@ export function ActionItemCard({
   /** Opens the embedded terminal panel with this item's prompt pre-filled, running the given agent CLI.
    * `startRef`, when passed, resumes that existing branch instead of starting a new one. */
   onOpenTerminal: (prompt: string, title: string, agentId: string, startRef?: string) => void;
+  /** Starts an instrumented run (see the Runs tab) seeded with this item's prompt. Omit to hide the Run button. */
+  onStartRun?: (prompt: string, agentId: string) => void;
+  startingRun?: boolean;
   /** Permanently deletes this action item. Omit to hide the Remove button. */
   onRemove?: () => void;
   removing?: boolean;
@@ -227,6 +233,21 @@ export function ActionItemCard({
             </>
           )}
         </div>
+
+        {onStartRun && (
+          <button
+            onClick={() => onStartRun(buildPrompt(item, baseBranch), DEFAULT_AGENT_ID)}
+            disabled={startingRun}
+            title="Start an instrumented run for this task — observable token/cost timeline, in the Runs tab"
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md border border-outline-variant px-2 py-1 text-xs text-on-surface-variant hover:bg-white/5 hover:text-on-surface",
+              startingRun && "cursor-not-allowed opacity-50",
+            )}
+          >
+            <PlaySquare className={cn("size-3", startingRun && "animate-pulse")} />
+            {startingRun ? "Starting…" : "Run"}
+          </button>
+        )}
 
         {item.githubPrUrl && (
           <a

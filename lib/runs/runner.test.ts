@@ -116,7 +116,7 @@ function testAdapter(overrides: Partial<AgentRunAdapter> = {}): AgentRunAdapter 
 class FakeProcess extends EventEmitter {
   stdout = new EventEmitter();
   stderr = new EventEmitter();
-  stdin = { write: vi.fn() } as unknown as NodeJS.WritableStream;
+  stdin = { write: vi.fn(), end: vi.fn() } as unknown as NodeJS.WritableStream;
   killCalls: string[] = [];
   kill(signal?: NodeJS.Signals): boolean {
     this.killCalls.push(signal ?? "SIGTERM");
@@ -282,7 +282,7 @@ describe("startRun", () => {
 
 describe("applyControl", () => {
   it("cancels an active run: SIGCONT then SIGTERM, escalating to SIGKILL after the grace period", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const proc = new FakeProcess();
       const spawnFn = vi.fn().mockReturnValue(asSpawned(proc));
@@ -319,5 +319,79 @@ describe("applyControl", () => {
   it("rejects control on a run that isn't active", async () => {
     const result = await applyControl("no-such-run", "cancel");
     expect(result).toEqual({ ok: false, reason: "Run is not currently active." });
+  });
+
+  it("rejects inject when the run wasn't started in interactive mode, even if the adapter supports it", async () => {
+    getRunAdapterMock.mockReturnValue(
+      testAdapter({ supportsInjection: true, formatUserTurn: (t) => `TURN:${t}\n` }),
+    );
+    const proc = new FakeProcess();
+    const spawnFn = vi.fn().mockReturnValue(asSpawned(proc));
+    const { runId } = (await startRun(
+      { projectId: "proj-1", agentId: "test-agent", config: { prompt: "x" } }, // interactive not set
+      { spawn: spawnFn },
+    )) as { ok: true; runId: string };
+
+    const result = await applyControl(runId, "inject", { text: "more guidance" });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/interactive/i);
+    expect(proc.stdin.write).not.toHaveBeenCalled();
+  });
+
+  it("writes an adapter-formatted turn on inject for an interactive run and resets the grace timer", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      getRunAdapterMock.mockReturnValue(
+        testAdapter({ supportsInjection: true, formatUserTurn: (t) => `TURN:${t}\n` }),
+      );
+      const proc = new FakeProcess();
+      const spawnFn = vi.fn().mockReturnValue(asSpawned(proc));
+      const { runId } = (await startRun(
+        { projectId: "proj-1", agentId: "test-agent", config: { prompt: "x", interactive: true } },
+        { spawn: spawnFn },
+      )) as { ok: true; runId: string };
+
+      // A turn completes — arms the grace timer.
+      emitLine(proc, { type: "system", title: "turn done", turnComplete: true });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Inject well before the grace period would otherwise close stdin.
+      await vi.advanceTimersByTimeAsync(60_000);
+      const result = await applyControl(runId, "inject", { text: "more guidance" });
+      expect(result).toEqual({ ok: true });
+      expect(proc.stdin.write).toHaveBeenCalledWith("TURN:more guidance\n");
+      expect(proc.stdin.end).not.toHaveBeenCalled();
+
+      // The original grace window (minus what already elapsed) passing does
+      // NOT close stdin — the timer was reset by the inject.
+      await vi.advanceTimersByTimeAsync(4 * 60_000 + 30_000); // just short of another full 5 min
+      expect(proc.stdin.end).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gracefully ends an interactive run's stdin if no injection arrives within the grace period", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      getRunAdapterMock.mockReturnValue(
+        testAdapter({ supportsInjection: true, formatUserTurn: (t) => `TURN:${t}\n` }),
+      );
+      const proc = new FakeProcess();
+      const spawnFn = vi.fn().mockReturnValue(asSpawned(proc));
+      await startRun(
+        { projectId: "proj-1", agentId: "test-agent", config: { prompt: "x", interactive: true } },
+        { spawn: spawnFn },
+      );
+
+      emitLine(proc, { type: "system", title: "turn done", turnComplete: true });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(proc.stdin.end).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(proc.stdin.end).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

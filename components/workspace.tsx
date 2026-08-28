@@ -104,6 +104,31 @@ export function Workspace({
     if (project) openTerminal(project, prompt, title, agentId, startRef);
   }
 
+  const [startingRunItemId, setStartingRunItemId] = useState<string | null>(null);
+  const [startRunErrors, setStartRunErrors] = useState<Record<string, string>>({});
+  async function handleStartRun(actionItemId: string, prompt: string, agentId: string) {
+    if (!project) return;
+    setStartingRunItemId(actionItemId);
+    setStartRunErrors((prev) => ({ ...prev, [actionItemId]: "" }));
+    try {
+      const res = await fetch("/api/runs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id, actionItemId, agentId, config: { prompt } }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to start run.");
+      router.push(`/project/${owner}/${repoName}/runs/${data.runId}`);
+    } catch (err) {
+      setStartRunErrors((prev) => ({
+        ...prev,
+        [actionItemId]: err instanceof Error ? err.message : "Failed to start run.",
+      }));
+    } finally {
+      setStartingRunItemId(null);
+    }
+  }
+
   const [activeTab, setActiveTab] = useState<TabKey>("git");
 
   async function handleSync() {
@@ -515,11 +540,13 @@ export function Workspace({
                         key={item.id}
                         item={item}
                         pushing={pushingId === item.id}
-                        error={pushErrors[item.id]}
+                        error={pushErrors[item.id] || startRunErrors[item.id]}
                         baseBranch={project?.defaultBranch ?? branch}
                         conflict={conflictsByItemId.get(item.id)}
                         onPush={() => handlePush(item)}
                         onOpenTerminal={handleOpenTerminal}
+                        onStartRun={(prompt, agentId) => handleStartRun(item.id, prompt, agentId)}
+                        startingRun={startingRunItemId === item.id}
                         onRemove={() => handleRemove(item)}
                         removing={removingId === item.id}
                       />
@@ -569,11 +596,13 @@ export function Workspace({
                     key={item.id}
                     item={item}
                     pushing={pushingId === item.id}
-                    error={pushErrors[item.id]}
+                    error={pushErrors[item.id] || startRunErrors[item.id]}
                     baseBranch={project?.defaultBranch ?? branch}
                     conflict={conflictsByItemId.get(item.id)}
                     onPush={() => handlePush(item)}
                     onOpenTerminal={handleOpenTerminal}
+                    onStartRun={(prompt, agentId) => handleStartRun(item.id, prompt, agentId)}
+                    startingRun={startingRunItemId === item.id}
                     onRemove={() => handleRemove(item)}
                     removing={removingId === item.id}
                   />
@@ -616,11 +645,13 @@ export function Workspace({
                     key={item.id}
                     item={item}
                     pushing={pushingId === item.id}
-                    error={pushErrors[item.id]}
+                    error={pushErrors[item.id] || startRunErrors[item.id]}
                     baseBranch={project?.defaultBranch ?? branch}
                     conflict={conflictsByItemId.get(item.id)}
                     onPush={() => handlePush(item)}
                     onOpenTerminal={handleOpenTerminal}
+                    onStartRun={(prompt, agentId) => handleStartRun(item.id, prompt, agentId)}
+                    startingRun={startingRunItemId === item.id}
                     onRemove={() => handleRemove(item)}
                     removing={removingId === item.id}
                   />
