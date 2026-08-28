@@ -163,7 +163,110 @@ export const settings = sqliteTable("settings", {
    * for the registry of default commands this overrides).
    */
   agentOverrides: text("agent_overrides"),
+  /**
+   * Run cockpit defaults (see lib/runs/*). When `runAutoVerify` is on, a
+   * finished instrumented run automatically runs the repo's own test/lint/build
+   * in its worktree — programmatically, spending no agent tokens. `verifyCommands`
+   * is a JSON string array (e.g. `["npm test","npm run lint"]`); null falls back
+   * to commands detected from the worktree's package.json scripts.
+   */
+  runAutoVerify: integer("run_auto_verify", { mode: "boolean" }),
+  verifyCommands: text("verify_commands"),
   updatedAt: integer("updated_at"),
+});
+
+/**
+ * One instrumented agent run (see lib/runs/*). Unlike the interactive embedded
+ * terminal — a raw byte stream with no visibility — a run is recorded as an
+ * ordered `run_steps` timeline, each step stamped with tokens/cost, and is
+ * controllable (pause/gate/budget/cancel) while it executes.
+ */
+export const runs = sqliteTable("runs", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  /** Set when the run was launched from an action item; null for ad-hoc runs. */
+  actionItemId: text("action_item_id").references(() => actionItems.id, {
+    onDelete: "set null",
+  }),
+  /** Agent CLI id from lib/terminal/agents.ts: "claude" | "codex" | "antigravity". */
+  agentId: text("agent_id").notNull(),
+  model: text("model"),
+  /** Dedicated git worktree the agent ran in, removed (non-force) when the run ends. */
+  worktreePath: text("worktree_path"),
+  branch: text("branch"),
+  status: text("status", {
+    enum: [
+      "queued",
+      "running",
+      "paused",
+      "awaiting_approval",
+      "verifying",
+      "done",
+      "failed",
+      "cancelled",
+    ],
+  })
+    .notNull()
+    .default("queued"),
+  /** Run config JSON: { prompt, model?, skills[], budgetTokens?, budgetUsd?, gating?, verify?, verifyCommands[] }. */
+  configJson: text("config_json"),
+  /**
+   * False when the agent CLI has no structured output stream (e.g. a TUI-only
+   * agent): the run is captured as raw message steps with no token/cost meter.
+   */
+  instrumented: integer("instrumented", { mode: "boolean" }).notNull().default(true),
+  promptTokens: integer("prompt_tokens"),
+  completionTokens: integer("completion_tokens"),
+  totalTokens: integer("total_tokens"),
+  /** Estimated cost in micro-USD (integer, avoids float drift); the UI divides by 1e6. */
+  costEstimate: integer("cost_estimate"),
+  /** Result of the programmatic verification stage — null when it didn't run. */
+  verifyPassed: integer("verify_passed", { mode: "boolean" }),
+  durationMs: integer("duration_ms"),
+  error: text("error"),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('subsec') * 1000)`),
+  updatedAt: integer("updated_at"),
+});
+
+/** Ordered flight-recorder timeline for a run — one row per emitted event. */
+export const runSteps = sqliteTable("run_steps", {
+  id: text("id").primaryKey(),
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
+  /** Monotonic within a run, assigned by the recorder. */
+  seq: integer("seq").notNull(),
+  type: text("type", {
+    enum: [
+      "system",
+      "message",
+      "tool_use",
+      "tool_result",
+      "usage",
+      "gate",
+      "verify",
+      "error",
+    ],
+  }).notNull(),
+  /** Tool name for tool_use/tool_result steps. */
+  tool: text("tool"),
+  /** Skill/subagent name when one was active for this step. */
+  skill: text("skill"),
+  title: text("title"),
+  /** Full event payload as JSON, for the step detail drawer. */
+  payloadJson: text("payload_json"),
+  promptTokens: integer("prompt_tokens"),
+  completionTokens: integer("completion_tokens"),
+  /** Estimated cost in micro-USD for this step. */
+  costEstimate: integer("cost_estimate"),
+  durationMs: integer("duration_ms"),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch('subsec') * 1000)`),
 });
 
 export type Project = typeof projects.$inferSelect;
@@ -176,3 +279,7 @@ export type ProjectOverviewRow = typeof projectOverviews.$inferSelect;
 export type NewProjectOverviewRow = typeof projectOverviews.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
 export type NewSettings = typeof settings.$inferInsert;
+export type Run = typeof runs.$inferSelect;
+export type NewRun = typeof runs.$inferInsert;
+export type RunStepRow = typeof runSteps.$inferSelect;
+export type NewRunStepRow = typeof runSteps.$inferInsert;

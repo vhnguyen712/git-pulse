@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import type { Analysis } from "@/lib/schema";
 import { resolveSettings } from "@/lib/settings";
+import { estimateCostUsd } from "@/lib/runs/cost";
 
 export interface SyncHistoryEntry {
   id: string;
@@ -96,8 +97,7 @@ export async function getProjectHistory(projectId: string): Promise<SyncHistoryE
     }),
     resolveSettings(),
   ]);
-  const priceIn = costPerMillionInput ? Number(costPerMillionInput) : null;
-  const priceOut = costPerMillionOutput ? Number(costPerMillionOutput) : null;
+  const pricing = { costPerMillionInput, costPerMillionOutput };
 
   const items = await db.query.actionItems.findMany({
     where: (a, { eq }) => eq(a.projectId, projectId),
@@ -114,18 +114,7 @@ export async function getProjectHistory(projectId: string): Promise<SyncHistoryE
     const analysis = JSON.parse(s.summaryJson) as Analysis;
     const summaryItems = itemsBySummary.get(s.id) ?? [];
 
-    let estimatedCostUsd: number | null = null;
-    if (
-      priceIn !== null &&
-      !Number.isNaN(priceIn) &&
-      priceOut !== null &&
-      !Number.isNaN(priceOut) &&
-      s.promptTokens != null &&
-      s.completionTokens != null
-    ) {
-      estimatedCostUsd =
-        (s.promptTokens / 1_000_000) * priceIn + (s.completionTokens / 1_000_000) * priceOut;
-    }
+    const estimatedCostUsd = estimateCostUsd(s.promptTokens, s.completionTokens, pricing);
 
     return {
       id: s.id,

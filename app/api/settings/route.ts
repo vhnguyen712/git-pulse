@@ -4,6 +4,7 @@ import {
   upsertSettings,
   maskSecret,
   parseAgentOverrides,
+  parseVerifyCommands,
 } from "@/lib/settings";
 import { settingsUpdateSchema } from "@/lib/schema";
 import { logger } from "@/lib/logging";
@@ -30,6 +31,8 @@ export interface SettingsResponse {
   autoSyncEnabled: boolean;
   autoSyncIntervalMinutes: number | null;
   agentOverrides: AgentOverrides;
+  runAutoVerify: boolean;
+  verifyCommands: string[];
 }
 
 async function buildResponse(): Promise<SettingsResponse> {
@@ -55,6 +58,8 @@ async function buildResponse(): Promise<SettingsResponse> {
     autoSyncEnabled: Boolean(row?.autoSyncEnabled),
     autoSyncIntervalMinutes: row?.autoSyncIntervalMinutes ?? null,
     agentOverrides: parseAgentOverrides(row?.agentOverrides),
+    runAutoVerify: Boolean(row?.runAutoVerify),
+    verifyCommands: parseVerifyCommands(row?.verifyCommands),
   };
 }
 

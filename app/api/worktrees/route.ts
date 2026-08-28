@@ -3,11 +3,17 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logging";
 import { activeWorktreePaths } from "@/lib/terminal/server";
+import { activeRunWorktreePaths } from "@/lib/runs/recorder";
 import {
   isManagedWorktreePath,
   listWorktrees,
   removeWorktree,
 } from "@/lib/terminal/worktree";
+
+/** Worktrees currently in use by either a live terminal session or a live run. */
+function allActiveWorktreePaths(): Set<string> {
+  return new Set([...activeWorktreePaths(), ...activeRunWorktreePaths()]);
+}
 
 /**
  * Lists and removes the per-session git worktrees the embedded terminal
@@ -46,7 +52,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const inUse = activeWorktreePaths();
+    const inUse = allActiveWorktreePaths();
     const worktrees: WorktreeRow[] = (await listWorktrees(project.localPath))
       .filter((w) => w.isManaged && !w.isMain)
       .map((w) => ({
@@ -95,10 +101,10 @@ export async function DELETE(req: Request) {
     );
   }
 
-  // Guard: a live session is running `claude` in this worktree.
-  if (activeWorktreePaths().has(path.normalize(wtPath).toLowerCase())) {
+  // Guard: a live terminal session or instrumented run is using this worktree.
+  if (allActiveWorktreePaths().has(path.normalize(wtPath).toLowerCase())) {
     return NextResponse.json(
-      { error: "That worktree has an open terminal. Close its tab first." },
+      { error: "That worktree is in use by an open terminal or run. Close/cancel it first." },
       { status: 409 },
     );
   }
