@@ -176,6 +176,9 @@ export const settingsUpdateSchema = z.object({
   agentOverrides: z
     .record(z.string(), z.object({ command: z.string().optional(), args: z.array(z.string()).optional() }))
     .optional(),
+  /** Run cockpit defaults (see lib/runs/*). */
+  runAutoVerify: z.boolean().optional(),
+  verifyCommands: z.array(z.string()).optional(),
 });
 export type SettingsUpdateRequest = z.infer<typeof settingsUpdateSchema>;
 
@@ -189,3 +192,31 @@ export const clearDataRequestSchema = z
     message: "Select at least one category to clear.",
   });
 export type ClearDataRequest = z.infer<typeof clearDataRequestSchema>;
+
+/** Config for one instrumented agent run — see lib/runs/types.ts's RunConfig. */
+export const runConfigSchema = z.object({
+  prompt: z.string().min(1),
+  model: z.string().min(1).optional(),
+  skills: z.array(z.string()).optional(),
+  budgetTokens: z.number().positive().optional(),
+  budgetUsd: z.number().positive().optional(),
+  gating: z.boolean().optional(),
+  verify: z.boolean().optional(),
+  verifyCommands: z.array(z.string()).optional(),
+});
+
+/** Body for POST /api/runs — starts an instrumented agent run. */
+export const startRunRequestSchema = z.object({
+  projectId: z.string().min(1),
+  actionItemId: z.string().min(1).optional(),
+  agentId: z.string().min(1),
+  config: runConfigSchema,
+});
+export type StartRunRequest = z.infer<typeof startRunRequestSchema>;
+
+/** Body for POST /api/runs/[id]/control */
+export const runControlRequestSchema = z.object({
+  action: z.enum(["pause", "resume", "step", "inject", "cancel"]),
+  payload: z.object({ text: z.string().optional() }).optional(),
+});
+export type RunControlRequest = z.infer<typeof runControlRequestSchema>;
