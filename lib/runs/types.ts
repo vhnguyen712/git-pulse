@@ -6,6 +6,20 @@
  */
 import type { TokenUsage } from "@/lib/llm";
 
+/** Lifecycle status of a run. Mirrors the `runs.status` enum. */
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "awaiting_approval"
+  | "verifying"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+/** Human-operated control actions on a live run. */
+export type ControlAction = "pause" | "resume" | "step" | "inject" | "cancel";
+
 /** Step kinds recorded on a run's timeline. Mirrors the `run_steps.type` enum. */
 export type RunStepType =
   | "system"
