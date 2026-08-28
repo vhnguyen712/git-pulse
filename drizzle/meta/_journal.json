@@ -64,6 +64,13 @@
       "when": 1787848179400,
       "tag": "0008_bored_absorbing_man",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787853973143,
+      "tag": "0009_parched_wolverine",
+      "breakpoints": true
     }
   ]
 }

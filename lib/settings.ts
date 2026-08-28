@@ -16,6 +16,21 @@ export interface ResolvedSettings {
   autoSyncEnabled: boolean;
   autoSyncIntervalMinutes: number | null;
   agentOverrides: AgentOverrides;
+  /** Run cockpit: auto-run programmatic verification after an instrumented run. */
+  runAutoVerify: boolean;
+  /** Verification commands (parsed); empty falls back to detected package.json scripts. */
+  verifyCommands: string[];
+}
+
+/** Parses the stored `verify_commands` JSON array, tolerating missing/malformed data. */
+export function parseVerifyCommands(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((c): c is string => typeof c === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Parses the stored `agent_overrides` JSON, tolerating missing/malformed data. */
@@ -50,6 +65,8 @@ export async function resolveSettings(): Promise<ResolvedSettings> {
     autoSyncEnabled: Boolean(row?.autoSyncEnabled),
     autoSyncIntervalMinutes: row?.autoSyncIntervalMinutes ?? null,
     agentOverrides: parseAgentOverrides(row?.agentOverrides),
+    runAutoVerify: Boolean(row?.runAutoVerify),
+    verifyCommands: parseVerifyCommands(row?.verifyCommands),
   };
 }
 
@@ -114,6 +131,9 @@ export interface SettingsUpdate {
   autoSyncIntervalMinutes?: number | null;
   /** Replaces the whole overrides map (the settings form submits it in full, not per-agent). */
   agentOverrides?: AgentOverrides;
+  runAutoVerify?: boolean;
+  /** Replaces the verification command list; empty clears it (falls back to detected scripts). */
+  verifyCommands?: string[];
 }
 
 /**
@@ -138,6 +158,8 @@ export async function upsertSettings(update: SettingsUpdate): Promise<void> {
     autoSyncEnabled: existing?.autoSyncEnabled ?? null,
     autoSyncIntervalMinutes: existing?.autoSyncIntervalMinutes ?? null,
     agentOverrides: existing?.agentOverrides ?? null,
+    runAutoVerify: existing?.runAutoVerify ?? null,
+    verifyCommands: existing?.verifyCommands ?? null,
   };
 
   if ("githubToken" in update) next.githubToken = update.githubToken || null;
@@ -162,6 +184,11 @@ export async function upsertSettings(update: SettingsUpdate): Promise<void> {
   if ("autoSyncEnabled" in update) next.autoSyncEnabled = update.autoSyncEnabled ?? null;
   if ("autoSyncIntervalMinutes" in update)
     next.autoSyncIntervalMinutes = update.autoSyncIntervalMinutes ?? null;
+  if ("runAutoVerify" in update) next.runAutoVerify = update.runAutoVerify ?? null;
+  if ("verifyCommands" in update) {
+    const cleaned = (update.verifyCommands ?? []).map((c) => c.trim()).filter(Boolean);
+    next.verifyCommands = cleaned.length > 0 ? JSON.stringify(cleaned) : null;
+  }
 
   await db
     .insert(settings)
