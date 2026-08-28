@@ -49,6 +49,12 @@ export interface ParsedEvent {
   payload?: unknown;
   /** Token usage carried by this event (assistant/result events). */
   usage?: TokenUsage;
+  /**
+   * Runner-internal signal (not persisted as a DB column) marking this event
+   * as a turn's terminal result. Drives the interactive grace-timer in
+   * lib/runs/runner.ts — it does not affect what's stored for the step.
+   */
+  turnComplete?: boolean;
 }
 
 /** Everything needed to launch and shape a run, persisted on `runs.configJson`. */
@@ -64,6 +70,13 @@ export interface RunConfig {
   budgetUsd?: number;
   /** Require per-tool approval before risky tools run (agent-capability gated). */
   gating?: boolean;
+  /**
+   * Keep the agent process alive after each turn so guidance can be injected
+   * mid-run (agent-capability gated — see AgentRunAdapter.supportsInjection).
+   * When false/unset (default), the run does one turn and stops — the
+   * well-tested default behavior, unchanged.
+   */
+  interactive?: boolean;
   /** Run the programmatic verification stage when the agent finishes. */
   verify?: boolean;
   /** Verification commands; empty falls back to detected package.json scripts. */
@@ -101,6 +114,13 @@ export interface AgentRunAdapter {
   supportsGating: boolean;
   /** Build the argv/stdin for a run from the agent's base command and the run config. */
   buildSpawn(base: AgentBaseCommand, config: RunConfig): AgentSpawnSpec;
+  /**
+   * Formats one line to write to the child's stdin as a new user turn — used
+   * both for the initial prompt (via buildSpawn's `stdin`, when `interactive`)
+   * and for later injected guidance. Present only when the adapter has a real
+   * multi-turn stdin protocol (i.e. supportsInjection is true for some config).
+   */
+  formatUserTurn?(text: string): string;
   /**
    * Parse one raw output line into zero or more timeline events. Returns `[]`
    * for blank/unrecognized/ignored lines. A single line may yield several events

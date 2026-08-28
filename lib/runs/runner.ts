@@ -33,6 +33,17 @@ import { logger } from "@/lib/logging";
 const CANCEL_GRACE_MS = 5000;
 
 /**
+ * How long an interactive run's process is kept alive after a turn completes,
+ * waiting for an `inject` control action before gracefully closing stdin and
+ * letting it exit. Verified real: a `claude --input-format stream-json`
+ * process stays alive and correctly processes a stdin turn written well after
+ * the previous turn's result (see docs/spike-cli-streaming.md) — this bounds
+ * how long that window stays open so an unattended interactive run doesn't
+ * hold a process (and its worktree) forever.
+ */
+const INTERACTIVE_TURN_GRACE_MS = 5 * 60 * 1000;
+
+/**
  * Minimal surface this module needs from a spawned child process — matches
  * node:child_process's ChildProcess but is declared independently so tests can
  * supply a fake backed by a plain EventEmitter instead of a real process.
@@ -89,6 +100,10 @@ interface RunProcessEntry {
   budgetTripped: boolean;
   startedAt: number;
   killTimer: ReturnType<typeof setTimeout> | null;
+  /** Interactive runs only: armed after each turn completes, closes stdin (ending the run) if no injection arrives in time. */
+  turnGraceTimer: ReturnType<typeof setTimeout> | null;
+  /** Guards against calling child.stdin.end() twice. */
+  stdinEnded: boolean;
 }
 
 // Keyed by run id — the run counterpart to lib/terminal/server.ts's pty `sessions` map.
@@ -191,6 +206,8 @@ export async function startRun(
     budgetTripped: false,
     startedAt: Date.now(),
     killTimer: null,
+    turnGraceTimer: null,
+    stdinEnded: false,
   };
   processes.set(runId, entry);
 
@@ -237,7 +254,27 @@ async function processLine(runId: string, entry: RunProcessEntry, line: string):
     if (event.type === "usage" && run && !entry.budgetTripped) {
       await maybeTripBudget(runId, entry, run);
     }
+    if (event.turnComplete && entry.config.interactive) {
+      armTurnGraceTimer(entry);
+    }
   }
+}
+
+/**
+ * Re-arms the grace timer after a turn completes on an interactive run: if no
+ * `inject` control action arrives before it fires, gracefully end the run by
+ * closing stdin — the process exits on its own once it sees no more input is
+ * coming (verified: docs/spike-cli-streaming.md).
+ */
+function armTurnGraceTimer(entry: RunProcessEntry): void {
+  if (entry.turnGraceTimer) clearTimeout(entry.turnGraceTimer);
+  entry.turnGraceTimer = setTimeout(() => {
+    entry.turnGraceTimer = null;
+    if (!entry.stdinEnded) {
+      entry.stdinEnded = true;
+      entry.child.stdin?.end();
+    }
+  }, INTERACTIVE_TURN_GRACE_MS);
 }
 
 /** Checks the budget guard after a usage update and auto-pauses (or stops) the run if it's exceeded. */
@@ -280,6 +317,7 @@ async function handleExit(
   const entry = processes.get(runId);
   if (!entry) return;
   if (entry.killTimer) clearTimeout(entry.killTimer);
+  if (entry.turnGraceTimer) clearTimeout(entry.turnGraceTimer);
 
   // Flush any final line that arrived with no trailing newline, then wait for
   // every already-queued chunk (this one included) to finish processing
@@ -379,6 +417,7 @@ async function finalize(
     processes.delete(runId);
     unregisterRun(runId);
     if (entry.killTimer) clearTimeout(entry.killTimer);
+    if (entry.turnGraceTimer) clearTimeout(entry.turnGraceTimer);
     if (entry.worktreePath) await removeSessionWorktree(entry.repoPath, entry.worktreePath);
   }
   await setRunStatus(runId, status, extra);
@@ -394,8 +433,13 @@ export interface ControlResult {
  * transition's legality (control.ts) and the adapter's actual capability
  * before touching the process — cancel and the budget guard are always
  * available; pause/resume act via OS signals (SIGSTOP/SIGCONT, POSIX only);
- * step/inject are accepted only when a future adapter declares real support
- * (none do today — see the capability notes on lib/runs/adapters/claude.ts).
+ * inject is real for an interactive Claude Code run (verified: see
+ * docs/spike-cli-streaming.md) but requires the run to have actually been
+ * started with `config.interactive` — a static adapter capability isn't
+ * enough, since the non-interactive spawn mode's process can't accept more
+ * input. step (per-tool gating) is accepted by no adapter today — confirmed
+ * not possible headlessly with the installed CLI, see
+ * lib/runs/adapters/claude.ts.
  */
 export async function applyControl(
   runId: string,
@@ -430,10 +474,23 @@ export async function applyControl(
       entry.child.kill("SIGCONT");
       await setRunStatus(runId, "running");
       break;
-    case "inject":
-      if (!payload?.text || !entry.child.stdin) return { ok: false, reason: "No guidance text provided." };
-      entry.child.stdin.write(`${payload.text}\n`);
+    case "inject": {
+      if (!payload?.text) return { ok: false, reason: "No guidance text provided." };
+      if (!entry.config.interactive) {
+        return { ok: false, reason: "This run wasn't started in interactive mode — nothing is listening for more input." };
+      }
+      if (!entry.adapter.formatUserTurn || !entry.child.stdin || entry.stdinEnded) {
+        return { ok: false, reason: "This run can no longer accept injected guidance." };
+      }
+      // A new turn is starting — the grace timer that would otherwise close
+      // stdin gets re-armed once THIS turn's own result arrives.
+      if (entry.turnGraceTimer) {
+        clearTimeout(entry.turnGraceTimer);
+        entry.turnGraceTimer = null;
+      }
+      entry.child.stdin.write(entry.adapter.formatUserTurn(payload.text));
       break;
+    }
   }
   return { ok: true };
 }

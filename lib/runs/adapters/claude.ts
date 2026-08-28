@@ -3,11 +3,28 @@
  * parses its JSONL event stream into timeline events.
  *
  * VERIFIED against a real installed CLI (v2.1.250) — see
- * docs/spike-cli-streaming.md for the full transcript and analysis this is
- * based on. `claude -p <prompt> --output-format stream-json --verbose` emits
- * one JSON object per line:
+ * docs/spike-cli-streaming.md for the full transcripts and analysis this is
+ * based on (three separate live spikes: a single-shot argv run, a multi-turn
+ * stdin-injection run, and a `--permission-mode manual` gating probe).
+ *
+ * Two spawn modes:
+ *  - **Default** (`config.interactive` unset/false): `claude -p <prompt>
+ *    --output-format stream-json --verbose`. One turn; the process exits on
+ *    its own once it's done. This is the well-tested path (single-shot and
+ *    tool-calling runs both verified end to end through the real runner).
+ *  - **Interactive** (`config.interactive: true`): `claude -p --input-format
+ *    stream-json --output-format stream-json --verbose` (no positional
+ *    prompt) — confirmed the process stays alive after a turn's terminal
+ *    `result` and correctly processes a second `{"type":"user","message":
+ *    {"role":"user","content":text}}` line written to its stdin well after
+ *    the first turn completed. lib/runs/runner.ts writes the initial prompt
+ *    this way too (via buildSpawn's `stdin`) and keeps the process alive for
+ *    a grace period after each turn so `inject` can add another one.
+ *
+ * Event shapes (one JSON object per line):
  *  - `system` events with varying `subtype` (init/status/commands_changed/
- *    task_summary/post_turn_summary/...) — only `init` (session start) and
+ *    task_summary/post_turn_summary/...) — only `init` (confirmed to recur
+ *    once per turn in interactive mode, not just once per process) and
  *    `post_turn_summary` (a short natural-language turn recap) carry
  *    timeline-worthy content; everything else is internal noise and is
  *    dropped rather than mapped to a misleading step.
@@ -19,17 +36,25 @@
  *  - `user` messages carrying `tool_result` blocks (`is_error`, `content`).
  *  - `stream_event` wrappers; only `event.type === "message_delta"` matters
  *    here — its `usage` is the turn's authoritative final, incremental count
- *    (confirmed: summing every turn's message_delta usage across a 2-turn run
- *    matched the terminal result's cumulative usage exactly, field for field).
+ *    (confirmed: summing every turn's message_delta usage matched the
+ *    terminal result's cumulative usage exactly, field for field, across two
+ *    separate multi-turn spikes).
  *  - a terminal `result` object with cumulative `usage` and `total_cost_usd`
  *    (Claude Code's own computed cost, correctly accounting for prompt-cache
  *    pricing tiers and any sub-model usage — more accurate than GitPulse's
  *    flat per-token-million estimate, but not yet wired through; see the
- *    "known gap" note in the spike doc).
+ *    "known gap" note in the spike doc). Marked `turnComplete: true` so the
+ *    runner knows a turn just ended.
+ *
+ * Gating: CONFIRMED NOT POSSIBLE headlessly, not just absent from --help.
+ * `--permission-mode manual` was tested directly against a tool-calling
+ * prompt in `-p` mode — the tool ran immediately with no approval step or
+ * blocking of any kind. supportsGating stays false on the strength of a
+ * direct negative result, not an assumption.
  *
  * Not yet confirmed against a real run: the exact `Skill`/`Task` tool_use
  * input field names used by skillFromToolUse() below (no skill was invoked in
- * either spike transcript) — kept as a documented best-effort heuristic.
+ * any spike transcript) — kept as a documented best-effort heuristic.
  */
 import type { AgentBaseCommand, AgentRunAdapter, AgentSpawnSpec, ParsedEvent, RunConfig } from "@/lib/runs/types";
 import type { TokenUsage } from "@/lib/llm";
@@ -71,28 +96,40 @@ function skillFromToolUse(name: string, input: unknown): string | undefined {
   return undefined;
 }
 
+/** The stream-json input protocol's user-turn envelope — verified against a live process. */
+function formatUserTurn(text: string): string {
+  return `${JSON.stringify({ type: "user", message: { role: "user", content: text } })}\n`;
+}
+
 export const claudeAdapter: AgentRunAdapter = {
   id: "claude",
   supportsStructuredStream: true,
-  // Mid-run injection and per-tool gating both need a live, multi-turn input
-  // protocol (streamed stdin turns; a permission-prompt callback for gating)
-  // that isn't confirmed against an installed CLI (see the M0 spike note
-  // above) and isn't wired in lib/runs/runner.ts. Rather than claim a control
-  // the runner can't actually back, both are honestly false for now — pause/
-  // resume/cancel work today via OS-level process signals, which don't depend
-  // on this protocol. Flip these once injection/gating are actually built.
-  supportsInjection: false,
+  // Real, verified: an interactive run's process stays alive and correctly
+  // processes an injected stdin turn (see docs/spike-cli-streaming.md). Only
+  // meaningful when the run itself was started with config.interactive —
+  // lib/runs/runner.ts's applyControl enforces that per-run gate.
+  supportsInjection: true,
+  // Confirmed false by direct test, not absence of a flag: --permission-mode
+  // manual did not block or prompt for a tool call in headless -p mode.
   supportsGating: false,
 
   buildSpawn(base: AgentBaseCommand, config: RunConfig): AgentSpawnSpec {
-    const args = [
-      ...base.args,
-      "-p",
-      config.prompt,
-      "--output-format",
-      "stream-json",
-      "--verbose",
-    ];
+    if (config.interactive) {
+      const args = [
+        ...base.args,
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+      ];
+      if (config.model) args.push("--model", config.model);
+      if (config.budgetUsd) args.push("--max-budget-usd", String(config.budgetUsd));
+      return { args, stdin: formatUserTurn(config.prompt) };
+    }
+
+    const args = [...base.args, "-p", config.prompt, "--output-format", "stream-json", "--verbose"];
     if (config.model) args.push("--model", config.model);
     // Claude Code has its own budget cap, enforced between turns — pass ours
     // through directly rather than relying solely on the external SIGSTOP
@@ -100,6 +137,8 @@ export const claudeAdapter: AgentRunAdapter = {
     if (config.budgetUsd) args.push("--max-budget-usd", String(config.budgetUsd));
     return { args };
   },
+
+  formatUserTurn,
 
   parseLine(line: string): ParsedEvent[] {
     const trimmed = line.trim();
@@ -119,7 +158,7 @@ export const claudeAdapter: AgentRunAdapter = {
           return [
             {
               type: "system",
-              title: model ? `Session started · ${model}` : "Session started",
+              title: model ? `Turn ready · ${model}` : "Turn ready",
               payload: obj,
             },
           ];
@@ -185,6 +224,7 @@ export const claudeAdapter: AgentRunAdapter = {
             type: isError ? "error" : "system",
             title: isError ? "Run failed" : "Run complete",
             payload: obj,
+            turnComplete: true,
           },
         ];
       }

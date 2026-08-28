@@ -6,6 +6,11 @@
 > best-effort per their own doc comments. This document records what was
 > actually observed, what in the shipped adapter was wrong, what was fixed,
 > and what's still an open question.
+>
+> **Follow-up spike (M6, real control)**: after the original M0 pass, a
+> second round of live testing settled the injection/gating question left
+> open above — see "M6 follow-up" below. Both directly answered: injection is
+> real and now implemented; gating is confirmed not possible headlessly.
 
 ## Method
 
@@ -140,6 +145,56 @@ own scoped change rather than being bolted on here. Filed as a follow-up: add
 an optional authoritative-cost override, sourced from the terminal `result`
 event, that the recorder prefers over the token-rate estimate when an adapter
 provides one.
+
+## M6 follow-up — injection and gating, settled for real
+
+Two more live tests, run specifically to resolve M6 rather than leave it an
+open question:
+
+1. **Multi-turn stdin injection.** Spawned `claude -p --input-format
+   stream-json --output-format stream-json --verbose` (no positional prompt)
+   directly, wrote `{"type":"user","message":{"role":"user","content":
+   "..."}}\n` as the first turn, then — six real seconds after that turn's
+   terminal `result` had already arrived — wrote a second such line. The
+   process had NOT exited on its own after the first turn (unlike the
+   argv `-p <prompt>` mode, which does); it processed the second line as a
+   genuinely new turn and replied correctly. Confirmed real, not assumed.
+
+   Also observed: in this mode, `system/init` recurs once **per turn**, not
+   once per process — `claude.ts`'s "Turn ready" step label (already renamed
+   away from "Session started" for this reason) is correct for both modes.
+
+2. **Gating via `--permission-mode manual`.** Spawned the same stream-json
+   mode with `--permission-mode manual` and a prompt requiring a `Bash` tool
+   call. The tool ran immediately — no blocking, no prompt, no
+   approval step of any kind. This is a **direct negative result**, not an
+   absence-of-flag inference: gating cannot be built headlessly against this
+   CLI version as it stands. `supportsGating` stays `false` on that basis.
+
+**Implementation from finding 1** (`lib/runs/adapters/claude.ts`,
+`lib/runs/runner.ts`, `lib/runs/types.ts`): a new `RunConfig.interactive`
+flag switches `buildSpawn` to the stream-json-input form and writes the
+initial prompt via stdin instead of argv. The runner arms a 5-minute grace
+timer after each turn's terminal `result` (`turnComplete: true` on the
+adapter's event) that gracefully closes stdin — ending the run — unless an
+`inject` control action arrives first, which writes another formatted turn
+and resets the timer. `applyControl`'s `inject` case requires the run to have
+actually been started with `interactive: true` (a static adapter capability
+isn't enough, since the default spawn mode's process can't accept more
+input) — enforced as a second, per-run gate beyond `controlSupported`.
+
+**Verified end to end**, not just unit-tested: started a real interactive run
+against the live CLI (`config.interactive: true`, prompt "reply with exactly
+the word: first"), confirmed it stayed `running` after the first turn's
+`Run complete` step, injected a second instruction ("reply with exactly the
+word: second") via the real `POST /api/runs/[id]/control` REST endpoint, and
+confirmed the CLI processed it as a genuine second turn — correct reply,
+correct post-turn recap, all 10 steps in strictly increasing seq order, then
+cancelled cleanly. A test-harness bug was also found and fixed along the way:
+`runner.test.ts`'s `vi.useFakeTimers({ toFake: ["setTimeout"] })` faked
+`setTimeout` but not `clearTimeout`, so a cleared fake timer fired anyway —
+the actual `runner.ts` logic was correct throughout; only the test's fake-timer
+configuration was missing `"clearTimeout"`.
 
 ## Verification performed
 
