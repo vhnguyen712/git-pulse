@@ -13,6 +13,7 @@ import { URL } from "node:url";
 import next from "next";
 import { WebSocketServer } from "ws";
 import { attachTerminal, isSameOrigin } from "@/lib/terminal/server";
+import { attachRun } from "@/lib/runs/server";
 import { startAutoSyncScheduler } from "@/lib/auto-sync-scheduler";
 
 const dev = process.env.NODE_ENV !== "production";
@@ -53,6 +54,21 @@ async function main() {
       wss.handleUpgrade(req, socket, head, (ws) => {
         attachTerminal(ws, req).catch((err) => {
           console.error("Terminal attach failed:", err);
+          ws.close(1011, "Internal error.");
+        });
+      });
+      return;
+    }
+
+    if (pathname === "/api/runs/stream") {
+      if (!isSameOrigin(req)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        attachRun(ws, req).catch((err) => {
+          console.error("Run attach failed:", err);
           ws.close(1011, "Internal error.");
         });
       });
